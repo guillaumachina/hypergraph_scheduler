@@ -263,6 +263,101 @@ Cons:
 
 This is a good first operational baseline.
 
+## Current Implemented Heuristic
+
+The current repository does not implement the full run-level formulation above.
+Instead, `hypergraph_scheduler` currently uses a pragmatic per-DAG slot-search heuristic to generate an initial recommendation_engine schedule proposal.
+
+In the current implementation:
+
+- only the five DS-owned recommendation_engine DAGs are treated as reschedulable,
+- multi-slot schedules are kept unchanged,
+- candidate cron starts are searched in 15-minute buckets inside the configured working-hours window,
+- the effective downstream start is estimated as `max(proposed cron, estimated upstream-ready time) + observed post-ready setup lag`,
+- candidate slots are scored with a weighted penalty on:
+  - waiting before upstream readiness,
+  - starting late after upstream readiness,
+  - violating a minimum stagger gap between recommendation_engine effective starts,
+  - finishing after the 19:00 UTC soft deadline,
+  - and moving too far from the current cron time.
+
+This heuristic is intentionally simpler than the formal formulation in this document.
+It does not optimize over individual historical runs $k$, does not solve a global MILP or CP-SAT program, and does not explicitly model crowding with decision variables such as $z_t$.
+Instead, it uses observed runtime summaries from DuckDB together with the static dependency graph to produce a fast, explainable first-pass proposal.
+
+So the relationship between the two is:
+
+- this document describes the fuller target optimization model,
+- the current code implements a heuristic approximation aligned with the same operational goals,
+- and the generated schedule proposal should be read as an operational baseline rather than a mathematically optimal solution.
+
+### Heuristic Scoring View
+
+One compact way to describe the current implementation is as a local discrete search over candidate cron slots.
+
+For each reschedulable DAG $i$, let:
+
+- $S_i$ be the set of candidate start slots inside the working-hours window,
+- $s_i^0$ be the current cron-derived start,
+- $r_i$ be the estimated upstream-ready time,
+- $g_i$ be the observed post-ready setup lag,
+- $p_i$ be the typical post-`create_config` processing duration,
+- $F$ be the soft finish deadline,
+- $m$ be the target minimum stagger gap to already assigned effective starts.
+
+For any candidate slot $x_i \in S_i$, define the predicted effective start as:
+
+$$
+e_i(x_i) = \max(x_i, r_i) + g_i
+$$
+
+and the nearest spacing to already assigned effective starts as:
+
+$$
+\delta_i(x_i) = \min_{j \in A_i} |e_i(x_i) - e_j|
+$$
+
+where $A_i$ is the set of DAGs that have already been assigned by the heuristic.
+
+The implemented local score can then be described as:
+
+$$
+\begin{aligned}
+\mathrm{score}_i(x_i)
+&=
+\alpha \,\max(0, r_i - x_i)
+\\[4pt]
+&\quad+
+\beta \,\max(0, x_i - r_i)
+\\[4pt]
+&\quad+
+\gamma \,\max(0, m - \delta_i(x_i))
+\\[4pt]
+&\quad+
+\eta \,\max(0, e_i(x_i) + p_i - F)
+\\[4pt]
+&\quad+
+\lambda \lvert x_i - s_i^0 \rvert
+\end{aligned}
+$$
+
+The selected slot is:
+
+$$
+x_i^* = \arg\min_{x_i \in S_i} \text{score}_i(x_i)
+$$
+
+Interpretation of the terms:
+
+- $\max(0, r_i - x_i)$ penalizes releasing the DAG before upstream data is ready,
+- $\max(0, x_i - r_i)$ penalizes starting later than necessary after readiness,
+- $\max(0, m - \delta_i(x_i))$ penalizes insufficient staggering,
+- $\max(0, e_i(x_i) + p_i - F)$ penalizes finishes that drift beyond the soft deadline,
+- $|x_i - s_i^0|$ penalizes large cron shifts.
+
+In code, these terms are implemented as a weighted local score rather than as a globally solved mathematical program.
+The weights are chosen pragmatically to prioritize avoiding pre-ready waiting first, then protect finish time and spacing, and only then penalize schedule drift.
+
 ### Option 4. Simulation + Search
 
 Use candidate schedules, simulate the dependency chain with estimated durations, and search over schedules with hill climbing, local search, or Bayesian optimization.
