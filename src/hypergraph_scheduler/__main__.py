@@ -2,13 +2,14 @@ import argparse
 
 from hypergraph_scheduler.duckdb_pipeline import build_runtime_views, connect, load_raw_exports
 from hypergraph_scheduler.export_raw import export_all
+from hypergraph_scheduler.reporting import build_recommendation_engine_report
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Local DuckDB workflow for Airflow metadata analysis")
     parser.add_argument(
         "command",
-        choices=["export-raw", "load-raw", "build-views", "init-db"],
+        choices=["export-raw", "load-raw", "build-views", "build-report", "init-db"],
         help="Workflow command to run",
     )
     parser.add_argument("--host", help="PostgreSQL host for export-raw")
@@ -56,6 +57,8 @@ def main() -> None:
             load_raw_exports(connection)
         elif args.command == "build-views":
             build_runtime_views(connection)
+        elif args.command == "build-report":
+            build_recommendation_engine_report(connection)
         elif args.command == "init-db":
             load_raw_exports(connection)
             build_runtime_views(connection)
