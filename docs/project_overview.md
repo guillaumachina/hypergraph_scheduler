@@ -23,6 +23,7 @@ Current scoped outputs:
 - recommendation_engine runtime summary views in DuckDB
 - edge-level wait estimates for mapped recommendation_engine seed dependencies
 - generated Markdown report under `artifacts/` for the five reschedulable seed DAGs
+- heuristic schedule proposal artifacts for the five reschedulable seed DAGs
 
 ## Initial Deliverables
 
