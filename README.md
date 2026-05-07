@@ -26,24 +26,30 @@ Local project for extracting Airflow metadata into DuckDB, modeling DAG dependen
 3. Put raw exports under `data/raw/`.
 4. Build local DuckDB tables from those exports.
 
-## Initial Workflow
+## First Workflow
 
-1. Place raw csv or parquet exports under:
+1. Export the PostgreSQL source data with:
+
+   ```bash
+   PGPASSWORD=... python -m hypergraph_scheduler export-raw --host <host> --database <database> --user <user>
+   ```
+
+2. The command writes csv extracts under `data/raw/`, for example:
 
    - `data/raw/dag_run/`
    - `data/raw/task_instance/`
    - `data/raw/task_reschedule/`
 
-2. Load raw files into DuckDB with:
+3. Load raw files into DuckDB with:
 
    ```bash
    python -m hypergraph_scheduler load-raw
    ```
 
-3. Build derived views with:
+4. Build derived views with:
 
    ```bash
    python -m hypergraph_scheduler build-views
    ```
 
-4. Query the local database at `data/duckdb/hypergraph_scheduler.duckdb`.
+5. Query the local database at `data/duckdb/hypergraph_scheduler.duckdb`.

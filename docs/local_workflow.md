@@ -4,7 +4,15 @@
 
 This workflow builds a local DuckDB analytics layer from Airflow metadata exports.
 
-Expected raw folders:
+## Raw Extracts
+
+Run the exporter command, which executes the SQL files in `sql/extract/` with `psql` and saves each result set under `data/raw/`.
+
+```bash
+PGPASSWORD=... python -m hypergraph_scheduler export-raw --host <host> --database <database> --user <user>
+```
+
+Expected folders:
 
 - `data/raw/dag_run/`
 - `data/raw/task_instance/`
