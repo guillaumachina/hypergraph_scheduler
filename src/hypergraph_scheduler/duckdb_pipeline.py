@@ -5,7 +5,7 @@ import duckdb
 import pandas as pd
 
 from hypergraph_scheduler.config import DuckDBConfig, DEFAULT_DUCKDB_CONFIG
-from hypergraph_scheduler.paths import PROJECT_ROOT, RAW_DATA_DIR, SQL_DIR
+from hypergraph_scheduler.paths import RAW_DATA_DIR, RECOMMENDATION_ENGINE_INPUTS_DIR, SQL_DIR
 
 
 def connect(config: DuckDBConfig = DEFAULT_DUCKDB_CONFIG) -> duckdb.DuckDBPyConnection:
@@ -53,13 +53,8 @@ def replace_table_from_dataframe(
 
 
 def load_recommendation_engine_static_inputs(connection: duckdb.DuckDBPyConnection) -> None:
-    graph_path = PROJECT_ROOT.parent / "recommendation_engine" / "docs" / "recommendation_engine_dag_dependencies.json"
-    model_path = (
-        PROJECT_ROOT.parent
-        / "recommendation_engine"
-        / "docs"
-        / "recommendation_engine_schedule_optimization_model.json"
-    )
+    graph_path = RECOMMENDATION_ENGINE_INPUTS_DIR / "recommendation_engine_dag_dependencies.json"
+    model_path = RECOMMENDATION_ENGINE_INPUTS_DIR / "recommendation_engine_schedule_optimization_model.json"
 
     graph = json.loads(graph_path.read_text())
     model = json.loads(model_path.read_text())

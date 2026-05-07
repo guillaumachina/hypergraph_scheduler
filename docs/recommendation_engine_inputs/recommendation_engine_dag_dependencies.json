@@ -1,0 +1,136 @@
+{
+  "scope": {
+    "seed_repo": "recommendation_engine",
+    "seed_dags": [
+      "market_item_recommender",
+      "recipe_recommender",
+      "user_clustering_predict",
+      "relevance_scoring",
+      "menu_ranker"
+    ],
+    "expanded_recursively": true,
+    "included_repos": [
+      "recommendation_engine",
+      "hummus",
+      "dwh",
+      "bi_reports",
+      "orders_forecast",
+      "menu_creation"
+    ],
+    "notes": [
+      "This model is recommendation_engine-focused and includes recursively referenced upstream DAGs.",
+      "Hummus waits marked as production-only are modeled as conditional edges.",
+      "The source_reports fan-in is expanded to its explicit source load waits."
+    ]
+  },
+  "nodes": [
+    {"dag_id": "market_item_recommender", "repo": "recommendation_engine", "schedule_resolved": "05 04 * * 3", "category": "seed"},
+    {"dag_id": "recipe_recommender", "repo": "recommendation_engine", "schedule_resolved": "05 07 * * 3", "category": "seed"},
+    {"dag_id": "user_clustering_predict", "repo": "recommendation_engine", "schedule_resolved": "05 07 * * 3", "category": "seed"},
+    {"dag_id": "relevance_scoring", "repo": "recommendation_engine", "schedule_resolved": "05 07 * * *", "category": "seed"},
+    {"dag_id": "menu_ranker", "repo": "recommendation_engine", "schedule_resolved": "30 4,18 * * *", "category": "seed", "notes": ["No explicit wait edge in DAG definition"]},
+
+    {"dag_id": "customer_feature_groups_sf", "repo": "hummus", "schedule_resolved": "05 07 * * *", "category": "upstream"},
+    {"dag_id": "recipe_feature_groups_sf", "repo": "hummus", "schedule_resolved": "05 07 * * *", "category": "upstream"},
+    {"dag_id": "ds_snapshots", "repo": "hummus", "schedule_resolved": "05 07 * * *", "category": "upstream"},
+
+    {"dag_id": "pipeline_end", "repo": "dwh", "schedule_resolved": "05 04 * * *", "category": "upstream"},
+    {"dag_id": "pipeline_start", "repo": "dwh", "schedule_resolved": "05 04 * * *", "category": "upstream"},
+    {"dag_id": "load_google_sheets", "repo": "dwh", "schedule_resolved": "05 01 * * *", "category": "upstream"},
+    {"dag_id": "load_questionpro", "repo": "dwh", "schedule_resolved": "10 8 * * *", "category": "upstream"},
+    {"dag_id": "export_rfm_segmentation", "repo": "dwh", "schedule_resolved": "05 07 * * 1", "category": "upstream"},
+    {"dag_id": "load_zendesk", "repo": "dwh", "schedule_resolved": "35 01 * * *", "category": "upstream"},
+    {"dag_id": "load_ramen", "repo": "dwh", "schedule_resolved": "30 2,10,18 * * *", "category": "upstream"},
+    {"dag_id": "load_nav_at", "repo": "dwh", "schedule_resolved": "05 03 * * *", "category": "upstream"},
+    {"dag_id": "load_nav_de", "repo": "dwh", "schedule_resolved": "05 03 * * *", "category": "upstream"},
+    {"dag_id": "load_nav_nl", "repo": "dwh", "schedule_resolved": "05 03 * * *", "category": "upstream"},
+    {"dag_id": "load_nav_pt", "repo": "dwh", "schedule_resolved": "05 03 * * *", "category": "upstream"},
+    {"dag_id": "load_nav_uk", "repo": "dwh", "schedule_resolved": "05 03 * * *", "category": "upstream"},
+    {"dag_id": "load_nav_us", "repo": "dwh", "schedule_resolved": "05 11 * * *", "category": "upstream"},
+    {"dag_id": "load_nav_au", "repo": "dwh", "schedule_resolved": "05 17 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_bmd_menuadmin", "repo": "dwh", "schedule_resolved": "00 8 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_ms", "repo": "dwh", "schedule_resolved": "00 02 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_ms_acquisition", "repo": "dwh", "schedule_resolved": "00 02 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_onion", "repo": "dwh", "schedule_resolved": "00 01 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_radar", "repo": "dwh", "schedule_resolved": "00 01 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_rewards", "repo": "dwh", "schedule_resolved": "05 01 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_breadcrumbs", "repo": "dwh", "schedule_resolved": "10 01 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_paysys", "repo": "dwh", "schedule_resolved": "10 01 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_spm", "repo": "dwh", "schedule_resolved": "15 01 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_beef", "repo": "dwh", "schedule_resolved": "20 01 * * *", "category": "upstream"},
+    {"dag_id": "load_ods_sauerkraut", "repo": "dwh", "schedule_resolved": "20 01 * * *", "category": "upstream"},
+
+    {"dag_id": "custom_reports", "repo": "bi_reports", "schedule_resolved": "05 04 * * *", "category": "upstream"},
+    {"dag_id": "report_layer", "repo": "bi_reports", "schedule_resolved": "05 04 * * *", "category": "upstream"},
+    {"dag_id": "object_layer", "repo": "bi_reports", "schedule_resolved": "05 04 * * *", "category": "upstream"},
+    {"dag_id": "source_reports", "repo": "bi_reports", "schedule_resolved": "05 04 * * *", "category": "upstream"},
+    {"dag_id": "snapshot_reports", "repo": "bi_reports", "schedule_resolved": "05 04 * * *", "category": "upstream"},
+    {"dag_id": "object_layer_bistromd", "repo": "bi_reports", "schedule_resolved": "00 8 * * *", "category": "upstream"},
+    {"dag_id": "object_layer_balance", "repo": "bi_reports", "schedule_resolved": "00 8 * * *", "category": "upstream"},
+    {"dag_id": "ramen_source_reports", "repo": "bi_reports", "schedule_resolved": "30 2,10,18 * * *", "category": "upstream"},
+
+    {"dag_id": "fork", "repo": "orders_forecast", "schedule_resolved": "05 07 * * *", "category": "upstream"},
+    {"dag_id": "menu_generation", "repo": "menu_creation", "schedule_resolved": "30 4,18 * * *", "category": "upstream"}
+  ],
+  "edges": [
+    {"from_dag_id": "pipeline_end", "to_dag_id": "market_item_recommender", "external_task_id": "dag_start_task", "alignment_type": "default", "depth_from_seed": 0},
+
+    {"from_dag_id": "customer_feature_groups_sf", "to_dag_id": "recipe_recommender", "external_task_id": "end", "alignment_type": "default", "depth_from_seed": 0},
+    {"from_dag_id": "recipe_feature_groups_sf", "to_dag_id": "recipe_recommender", "external_task_id": "end", "alignment_type": "default", "depth_from_seed": 0},
+    {"from_dag_id": "custom_reports", "to_dag_id": "recipe_recommender", "external_task_id": "dag_end_task", "alignment_type": "execution_date_fn", "alignment_value": "custom_reports_schedule_date_time", "alignment_detail": "same calendar date at 04:05 UTC", "depth_from_seed": 0},
+
+    {"from_dag_id": "customer_feature_groups_sf", "to_dag_id": "user_clustering_predict", "external_task_id": "end", "alignment_type": "default", "depth_from_seed": 0},
+
+    {"from_dag_id": "customer_feature_groups_sf", "to_dag_id": "relevance_scoring", "external_task_id": "end", "alignment_type": "default", "depth_from_seed": 0},
+    {"from_dag_id": "recipe_feature_groups_sf", "to_dag_id": "relevance_scoring", "external_task_id": "end", "alignment_type": "default", "depth_from_seed": 0},
+
+    {"from_dag_id": "pipeline_end", "to_dag_id": "customer_feature_groups_sf", "external_task_id": "dag_start_task", "alignment_type": "default", "depth_from_seed": 1, "enforced_envs": ["production"]},
+    {"from_dag_id": "ds_snapshots", "to_dag_id": "recipe_feature_groups_sf", "external_task_id": "end", "alignment_type": "default", "depth_from_seed": 1, "enforced_envs": ["production"]},
+    {"from_dag_id": "pipeline_end", "to_dag_id": "ds_snapshots", "external_task_id": "dag_start_task", "alignment_type": "default", "depth_from_seed": 1, "enforced_envs": ["production"]},
+
+    {"from_dag_id": "report_layer", "to_dag_id": "pipeline_end", "external_task_id": "dag_end_task", "alignment_type": "default", "depth_from_seed": 1},
+
+    {"from_dag_id": "report_layer", "to_dag_id": "custom_reports", "external_task_id": "dag_end_task", "alignment_type": "default", "depth_from_seed": 1},
+    {"from_dag_id": "object_layer", "to_dag_id": "custom_reports", "external_task_id": "load_end_task", "alignment_type": "default", "depth_from_seed": 1},
+    {"from_dag_id": "fork", "to_dag_id": "custom_reports", "external_task_id": "ge_test_ingredient_prediction", "alignment_type": "default", "depth_from_seed": 1},
+    {"from_dag_id": "menu_generation", "to_dag_id": "custom_reports", "external_task_id": "end", "alignment_type": "default", "depth_from_seed": 1},
+    {"from_dag_id": "snapshot_reports", "to_dag_id": "custom_reports", "external_task_id": "tg_monday_snapshots.tg_default.end_default_task", "alignment_type": "default", "depth_from_seed": 1},
+    {"from_dag_id": "load_google_sheets", "to_dag_id": "custom_reports", "external_task_id": "manual_sheets_edit_end_task", "alignment_type": "default", "depth_from_seed": 1},
+
+    {"from_dag_id": "object_layer", "to_dag_id": "report_layer", "external_task_id": "dag_end_task", "alignment_type": "default", "depth_from_seed": 2},
+    {"from_dag_id": "object_layer_bistromd", "to_dag_id": "report_layer", "external_task_id": "dag_end_task", "alignment_type": "execution_delta", "alignment_value": "-PT4H5M", "depth_from_seed": 2},
+    {"from_dag_id": "object_layer_balance", "to_dag_id": "report_layer", "external_task_id": "dag_end_task", "alignment_type": "execution_delta", "alignment_value": "-PT4H5M", "depth_from_seed": 2},
+    {"from_dag_id": "source_reports", "to_dag_id": "report_layer", "external_task_id": "zendesk_tg.end_zendesk", "alignment_type": "default", "depth_from_seed": 2},
+    {"from_dag_id": "load_questionpro", "to_dag_id": "report_layer", "external_task_id": "end_sourcing_task", "alignment_type": "default", "depth_from_seed": 2},
+    {"from_dag_id": "export_rfm_segmentation", "to_dag_id": "report_layer", "external_task_id": "end", "alignment_type": "default", "depth_from_seed": 2},
+
+    {"from_dag_id": "pipeline_start", "to_dag_id": "object_layer", "external_task_id": "dag_end_task", "alignment_type": "default", "depth_from_seed": 2},
+
+    {"from_dag_id": "source_reports", "to_dag_id": "pipeline_start", "external_task_id": "multiple task-group end tasks", "alignment_type": "fan_in", "depth_from_seed": 2},
+    {"from_dag_id": "ramen_source_reports", "to_dag_id": "pipeline_start", "external_task_id": "end_ramen", "alignment_type": "default", "depth_from_seed": 2},
+    {"from_dag_id": "load_google_sheets", "to_dag_id": "pipeline_start", "external_task_id": "end_task", "alignment_type": "default", "depth_from_seed": 2},
+
+    {"from_dag_id": "load_ods_bmd_menuadmin", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_ods_ms", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_ods_ms_acquisition", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_ods_onion", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_ods_radar", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_ods_rewards", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_ods_breadcrumbs", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_ods_paysys", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_ods_spm", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_ods_beef", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_ods_sauerkraut", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_nav_at", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_nav_de", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_nav_nl", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_nav_pt", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_nav_uk", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+    {"from_dag_id": "load_nav_us", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "execution_delta", "alignment_value": "-PT7H", "depth_from_seed": 3},
+    {"from_dag_id": "load_nav_au", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "execution_delta", "alignment_value": "-PT13H", "depth_from_seed": 3},
+    {"from_dag_id": "load_google_sheets", "to_dag_id": "source_reports", "external_task_id": "end_task", "alignment_type": "execution_delta", "alignment_value": "PT3H", "depth_from_seed": 3},
+    {"from_dag_id": "load_zendesk", "to_dag_id": "source_reports", "external_task_id": null, "alignment_type": "default", "depth_from_seed": 3},
+
+    {"from_dag_id": "load_ramen", "to_dag_id": "ramen_source_reports", "external_task_id": null, "alignment_type": "execution_delta", "alignment_value": "PT0S", "depth_from_seed": 3}
+  ]
+}

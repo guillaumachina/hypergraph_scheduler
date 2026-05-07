@@ -1,0 +1,369 @@
+{
+  "model_name": "recommendation_engine_schedule_optimization_model",
+  "version": 1,
+  "scope": {
+    "seed_repo": "recommendation_engine",
+    "seed_dags": [
+      "market_item_recommender",
+      "recipe_recommender",
+      "user_clustering_predict",
+      "relevance_scoring",
+      "menu_ranker"
+    ],
+    "timezone_assumption": "UTC",
+    "environment_target": "production",
+    "purpose": [
+      "Represent DAG precedence constraints for schedule optimization.",
+      "Separate planned schedule from actual runtime observations.",
+      "Support future working-hours and business-hour constraints."
+    ]
+  },
+  "optimization_defaults": {
+    "rescheduling_policy": {
+      "allow_schedule_change": true,
+      "preserve_precedence_constraints": true,
+      "preserve_conditional_edges_in_target_environment": true
+    },
+    "working_hours_constraint": {
+      "enabled": false,
+      "applies_to": "recommendation_engine_seed_dags_only",
+      "dag_ids": [
+        "market_item_recommender",
+        "recipe_recommender",
+        "user_clustering_predict",
+        "relevance_scoring",
+        "menu_ranker"
+      ],
+      "timezone": "UTC",
+      "earliest_start": "08:00",
+      "latest_start": "18:00",
+      "notes": "Global DS team working-hours window for recommendation_engine DAGs. No DAG-specific override is modeled."
+    },
+    "objective_candidates": [
+      "minimize_schedule_delay_seconds",
+      "minimize_downstream_wait_seconds",
+      "minimize_peak_concurrent_dag_starts",
+      "keep_runs_within_working_hours"
+    ]
+  },
+  "dags": [
+    {
+      "dag_id": "market_item_recommender",
+      "repo": "recommendation_engine",
+      "scheduled_cron": "05 04 * * 3",
+      "category": "seed",
+      "constraints": {
+        "fixed_schedule": false
+      }
+    },
+    {
+      "dag_id": "recipe_recommender",
+      "repo": "recommendation_engine",
+      "scheduled_cron": "05 07 * * 3",
+      "category": "seed",
+      "constraints": {
+        "fixed_schedule": false
+      }
+    },
+    {
+      "dag_id": "user_clustering_predict",
+      "repo": "recommendation_engine",
+      "scheduled_cron": "05 07 * * 3",
+      "category": "seed",
+      "constraints": {
+        "fixed_schedule": false
+      }
+    },
+    {
+      "dag_id": "relevance_scoring",
+      "repo": "recommendation_engine",
+      "scheduled_cron": "05 07 * * *",
+      "category": "seed",
+      "constraints": {
+        "fixed_schedule": false
+      }
+    },
+    {
+      "dag_id": "menu_ranker",
+      "repo": "recommendation_engine",
+      "scheduled_cron": "30 4,18 * * *",
+      "category": "seed",
+      "constraints": {
+        "fixed_schedule": false
+      },
+      "notes": [
+        "No explicit wait edge is enforced in the DAG definition."
+      ]
+    },
+    {
+      "dag_id": "customer_feature_groups_sf",
+      "repo": "hummus",
+      "scheduled_cron": "05 07 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "recipe_feature_groups_sf",
+      "repo": "hummus",
+      "scheduled_cron": "05 07 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "ds_snapshots",
+      "repo": "hummus",
+      "scheduled_cron": "05 07 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "pipeline_end",
+      "repo": "dwh",
+      "scheduled_cron": "05 04 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "pipeline_start",
+      "repo": "dwh",
+      "scheduled_cron": "05 04 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "load_google_sheets",
+      "repo": "dwh",
+      "scheduled_cron": "05 01 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "custom_reports",
+      "repo": "bi_reports",
+      "scheduled_cron": "05 04 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "report_layer",
+      "repo": "bi_reports",
+      "scheduled_cron": "05 04 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "object_layer",
+      "repo": "bi_reports",
+      "scheduled_cron": "05 04 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "source_reports",
+      "repo": "bi_reports",
+      "scheduled_cron": "05 04 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "snapshot_reports",
+      "repo": "bi_reports",
+      "scheduled_cron": "05 04 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "fork",
+      "repo": "orders_forecast",
+      "scheduled_cron": "05 07 * * *",
+      "category": "upstream"
+    },
+    {
+      "dag_id": "menu_generation",
+      "repo": "menu_creation",
+      "scheduled_cron": "30 4,18 * * *",
+      "category": "upstream"
+    }
+  ],
+  "precedence_constraints": [
+    {
+      "upstream_dag_id": "pipeline_end",
+      "downstream_dag_id": "market_item_recommender",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "customer_feature_groups_sf",
+      "downstream_dag_id": "recipe_recommender",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "recipe_feature_groups_sf",
+      "downstream_dag_id": "recipe_recommender",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "custom_reports",
+      "downstream_dag_id": "recipe_recommender",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "execution_date_fn",
+      "alignment_value": "custom_reports_schedule_date_time",
+      "alignment_detail": "same calendar date at 04:05 UTC"
+    },
+    {
+      "upstream_dag_id": "customer_feature_groups_sf",
+      "downstream_dag_id": "user_clustering_predict",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "customer_feature_groups_sf",
+      "downstream_dag_id": "relevance_scoring",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "recipe_feature_groups_sf",
+      "downstream_dag_id": "relevance_scoring",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "pipeline_end",
+      "downstream_dag_id": "customer_feature_groups_sf",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default",
+      "enforced_envs": [
+        "production"
+      ]
+    },
+    {
+      "upstream_dag_id": "ds_snapshots",
+      "downstream_dag_id": "recipe_feature_groups_sf",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default",
+      "enforced_envs": [
+        "production"
+      ]
+    },
+    {
+      "upstream_dag_id": "pipeline_end",
+      "downstream_dag_id": "ds_snapshots",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default",
+      "enforced_envs": [
+        "production"
+      ]
+    },
+    {
+      "upstream_dag_id": "report_layer",
+      "downstream_dag_id": "pipeline_end",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "report_layer",
+      "downstream_dag_id": "custom_reports",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "object_layer",
+      "downstream_dag_id": "custom_reports",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "fork",
+      "downstream_dag_id": "custom_reports",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "menu_generation",
+      "downstream_dag_id": "custom_reports",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "snapshot_reports",
+      "downstream_dag_id": "custom_reports",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "load_google_sheets",
+      "downstream_dag_id": "custom_reports",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "object_layer",
+      "downstream_dag_id": "report_layer",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    },
+    {
+      "upstream_dag_id": "source_reports",
+      "downstream_dag_id": "pipeline_start",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "fan_in"
+    },
+    {
+      "upstream_dag_id": "load_google_sheets",
+      "downstream_dag_id": "pipeline_start",
+      "constraint_type": "finish_before_start",
+      "alignment_type": "default"
+    }
+  ],
+  "comparison_schema": {
+    "planned_runs": {
+      "primary_key": [
+        "dag_id",
+        "logical_date"
+      ],
+      "fields": [
+        "dag_id",
+        "logical_date",
+        "scheduled_at",
+        "schedule_source"
+      ]
+    },
+    "actual_runs": {
+      "primary_key": [
+        "dag_id",
+        "logical_date",
+        "run_id"
+      ],
+      "fields": [
+        "dag_id",
+        "logical_date",
+        "run_id",
+        "queued_at",
+        "actual_start",
+        "actual_end",
+        "state",
+        "duration_seconds",
+        "schedule_delay_seconds"
+      ]
+    },
+    "sensor_waits": {
+      "primary_key": [
+        "dag_id",
+        "logical_date",
+        "task_id"
+      ],
+      "fields": [
+        "dag_id",
+        "logical_date",
+        "task_id",
+        "upstream_dag_id",
+        "wait_start",
+        "wait_end",
+        "wait_seconds"
+      ]
+    }
+  },
+  "runtime_join_keys": {
+    "dag_level": [
+      "dag_id",
+      "logical_date"
+    ],
+    "task_level": [
+      "dag_id",
+      "task_id",
+      "logical_date"
+    ]
+  }
+}

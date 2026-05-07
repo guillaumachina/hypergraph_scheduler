@@ -8,7 +8,7 @@ The current focus is the `recommendation_engine` scope: DS-owned DAGs that can b
 
 - exports `dag_run`, `task_instance`, and `task_reschedule` from PostgreSQL
 - builds a local DuckDB analytics layer over runtime and waiting-time facts
-- loads static dependency inputs for the scoped DAG graph
+- loads versioned static dependency inputs for the scoped DAG graph
 - produces recommendation_engine reports and schedule proposal artifacts
 
 ## Current Workflow
@@ -31,6 +31,8 @@ The current focus is the `recommendation_engine` scope: DS-owned DAGs that can b
    python -m hypergraph_scheduler build-views
    ```
 
+   This step reads the versioned recommendation_engine dependency inputs stored under `docs/recommendation_engine_inputs/`.
+
 4. Generate the candidate report:
 
    ```bash
@@ -51,6 +53,7 @@ Generated data stays local under `data/` and `artifacts/`.
 - `sql/extract/`: source SQL used against PostgreSQL metadata tables
 - `sql/transform/`: DuckDB transformation SQL
 - `docs/`: project notes and scoped workflow documentation
+- `docs/recommendation_engine_inputs/`: versioned dependency and optimization inputs used by the scheduler
 - `data/raw/`: local exported data files, ignored by git
 - `data/duckdb/`: local DuckDB databases, ignored by git
 - `artifacts/`: generated outputs, ignored by git
@@ -75,3 +78,15 @@ Generated data stays local under `data/` and `artifacts/`.
 - only DS-owned `recommendation_engine` DAGs are treated as reschedulable
 - upstream dependencies are modeled as fixed context
 - schedule proposals currently come from a heuristic slot-search, not a full solver
+
+## Versioned Static Inputs
+
+The scheduler depends on versioned recommendation_engine input files under `docs/recommendation_engine_inputs/`:
+
+- `recommendation_engine_dag_dependencies.json`
+- `recommendation_engine_schedule_optimization_model.json`
+- `dag_schedules_and_dependencies.md`
+- `recommendation_engine_schedule_optimization_formulation.md`
+
+These files are committed in this repository so `hypergraph_scheduler` does not depend on a sibling checkout of `recommendation_engine`.
+See `docs/recommendation_engine_inputs/README.md` for provenance and refresh instructions.

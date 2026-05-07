@@ -24,6 +24,7 @@ Current scoped outputs:
 - edge-level wait estimates for mapped recommendation_engine seed dependencies
 - generated Markdown report under `artifacts/` for the five reschedulable seed DAGs
 - heuristic schedule proposal artifacts for the five reschedulable seed DAGs
+- versioned recommendation_engine dependency and optimization inputs under `docs/recommendation_engine_inputs/`
 
 ## Initial Deliverables
 
@@ -31,3 +32,9 @@ Current scoped outputs:
 - repeatable DuckDB load pipeline
 - documented optimizer input tables
 - baseline scheduling algorithms
+
+## Input Provenance
+
+The recommendation_engine dependency graph and optimization defaults are committed with this repository under `docs/recommendation_engine_inputs/`.
+They were originally derived from the recommendation_engine DAG definitions and recursively referenced upstream DAGs across the related repos.
+The vendored copies make the scheduler reproducible without requiring a parallel checkout of `recommendation_engine`.

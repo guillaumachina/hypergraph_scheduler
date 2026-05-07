@@ -38,6 +38,8 @@ This creates physical raw tables:
 python -m hypergraph_scheduler build-views
 ```
 
+This step also loads the versioned recommendation_engine static inputs stored under `docs/recommendation_engine_inputs/`.
+
 This creates:
 
 - `dag_runs_enriched`
@@ -45,3 +47,17 @@ This creates:
 - `sensor_task_runs`
 - `sensor_reschedule_summary`
 - `sensor_wait_summary`
+
+## Versioned Recommendation Engine Inputs
+
+The recommendation_engine scoped analysis uses local committed copies of the dependency and optimization inputs:
+
+- `docs/recommendation_engine_inputs/recommendation_engine_dag_dependencies.json`
+- `docs/recommendation_engine_inputs/recommendation_engine_schedule_optimization_model.json`
+
+Supporting reference material is also versioned alongside them:
+
+- `docs/recommendation_engine_inputs/dag_schedules_and_dependencies.md`
+- `docs/recommendation_engine_inputs/recommendation_engine_schedule_optimization_formulation.md`
+
+Those files are the source of the graph nodes, graph edges, and optimization defaults loaded into DuckDB by `build-views`.
