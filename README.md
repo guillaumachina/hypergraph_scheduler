@@ -49,14 +49,21 @@ Generated data stays local under `data/` and `artifacts/`.
 
 ## Repository Layout
 
-- `src/hypergraph_scheduler/`: Python package for DuckDB pipelines and scheduling logic
-- `sql/extract/`: source SQL used against PostgreSQL metadata tables
-- `sql/transform/`: DuckDB transformation SQL
-- `docs/`: project notes and scoped workflow documentation
-- `docs/recommendation_engine_inputs/`: versioned dependency and optimization inputs used by the scheduler
-- `data/raw/`: local exported data files, ignored by git
-- `data/duckdb/`: local DuckDB databases, ignored by git
-- `artifacts/`: generated outputs, ignored by git
+```text
+hypergraph_scheduler/
+├── src/
+│   └── hypergraph_scheduler/          Python package for extraction, DuckDB loading, and scheduling logic
+├── sql/
+│   ├── extract/                       PostgreSQL extraction queries
+│   └── transform/                     DuckDB transformation queries and scoped views
+├── docs/
+│   ├── recommendation_engine_inputs/  Versioned dependency graph and optimization inputs
+│   └── ...                            Workflow notes and project documentation
+├── data/
+│   ├── raw/                           Local raw exports, ignored by git
+│   └── duckdb/                        Local DuckDB files, ignored by git
+└── artifacts/                         Generated reports and schedule proposals, ignored by git
+```
 
 ## Main Commands
 
