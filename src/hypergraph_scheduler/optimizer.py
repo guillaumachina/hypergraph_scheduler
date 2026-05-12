@@ -3,13 +3,34 @@ from __future__ import annotations
 import csv
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from hypergraph_scheduler.paths import ARTIFACTS_DIR, RECOMMENDATION_ENGINE_INPUTS_DIR
+import duckdb
+
+from hypergraph_scheduler.paths import ARTIFACTS_DIR
+from hypergraph_scheduler.scopes import ScopeDefinition, get_scope
 
 
-MODEL_PATH = RECOMMENDATION_ENGINE_INPUTS_DIR / "recommendation_engine_schedule_optimization_model.json"
+OptimizationInputRow = tuple[
+    str,
+    str,
+    int | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+    float | None,
+]
 
 
 @dataclass(frozen=True)
@@ -18,13 +39,85 @@ class WorkingHours:
     latest_start_minute: int
 
 
+@dataclass(frozen=True)
+class SlottedDagPlanInput:
+    dag_id: str
+    current_schedule: str
+    current_primary_start_minute: int
+    current_effective_start_minute: int
+    effective_start_delay_minutes: int
+    upstream_ready_minute: int
+    post_ready_setup_minutes: int
+    schedule_suffix: str
+    pressure_buffer_minutes: int
+    direct_upstream_dependency_count: int
+    avg_dag_runtime_seconds: float
+    p90_dag_runtime_seconds: float
+    avg_effective_start_delay_seconds: float
+    p90_effective_start_delay_seconds: float
+    avg_effective_processing_seconds: float
+    median_effective_processing_seconds: float
+    p90_effective_processing_seconds: float
+    total_scoped_idle_wait_seconds: float
+    mapped_upstream_idle_wait_seconds: float
+    mapped_edge_max_p90_idle_wait_seconds: float
+    mapped_edge_max_avg_ready_seconds: float
+    mapped_edge_max_p90_ready_seconds: float
+    mapped_edge_max_avg_sensor_touch_seconds: float
+    mapped_edge_max_p90_sensor_touch_seconds: float
+    effective_processing_minutes: int
+    typical_processing_minutes: int
+
+
+@dataclass(frozen=True)
+class ProposalRow:
+    dag_id: str
+    current_schedule: str
+    proposed_schedule: str
+    current_primary_start_utc: str
+    proposed_primary_start_utc: str
+    current_effective_start_utc: str
+    proposed_effective_start_utc: str
+    estimated_upstream_ready_utc: str
+    current_wait_before_ready_minutes: int
+    proposed_wait_before_ready_minutes: int
+    current_gap_after_ready_minutes: int
+    proposed_gap_after_ready_minutes: int
+    wait_saved_minutes: int
+    current_estimated_finish_utc: str
+    proposed_estimated_finish_utc: str
+    shift_minutes: int
+    pressure_buffer_minutes: int
+    effective_start_delay_minutes: int
+    post_ready_setup_minutes: int
+    direct_upstream_dependency_count: int
+    avg_dag_runtime_seconds: float
+    p90_dag_runtime_seconds: float
+    avg_effective_start_delay_seconds: float
+    p90_effective_start_delay_seconds: float
+    avg_effective_processing_seconds: float
+    median_effective_processing_seconds: float
+    p90_effective_processing_seconds: float
+    total_scoped_idle_wait_seconds: float
+    mapped_upstream_idle_wait_seconds: float
+    mapped_edge_max_p90_idle_wait_seconds: float
+    mapped_edge_max_avg_ready_seconds: float
+    mapped_edge_max_p90_ready_seconds: float
+    mapped_edge_max_avg_sensor_touch_seconds: float
+    mapped_edge_max_p90_sensor_touch_seconds: float
+    strategy: str
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
 def parse_hhmm(value: str) -> int:
     hour_str, minute_str = value.split(":", maxsplit=1)
     return int(hour_str) * 60 + int(minute_str)
 
 
-def load_working_hours() -> WorkingHours:
-    model = json.loads(MODEL_PATH.read_text())
+def load_working_hours(model_path: Path) -> WorkingHours:
+    model = json.loads(model_path.read_text(encoding="utf-8"))
     working_hours = model["optimization_defaults"]["working_hours_constraint"]
     return WorkingHours(
         earliest_start_minute=parse_hhmm(working_hours["earliest_start"]),
@@ -122,26 +215,22 @@ def choose_primary_start_slot(
     return best_primary_slot, best_effective_slot
 
 
-def finalize_output_row(row: dict[str, object]) -> dict[str, object]:
-    internal_keys = {
-        "current_effective_start_minute",
-        "current_primary_start_minute",
-        "effective_start_delay_minutes_raw",
-        "effective_processing_minutes_raw",
-        "typical_processing_minutes_raw",
-        "schedule_suffix",
-    }
-    return {key: value for key, value in row.items() if key not in internal_keys}
+def _slotted_row_sort_key(item: SlottedDagPlanInput) -> tuple[int, float, str]:
+    return (
+        item.current_effective_start_minute,
+        -item.mapped_upstream_idle_wait_seconds,
+        item.dag_id,
+    )
 
 
-def build_recommendation_engine_schedule_proposal(connection) -> Path:
+def build_scope_schedule_proposal(connection: duckdb.DuckDBPyConnection, scope: ScopeDefinition) -> Path:
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    markdown_path = ARTIFACTS_DIR / "recommendation_engine_schedule_proposal.md"
-    csv_path = ARTIFACTS_DIR / "recommendation_engine_schedule_proposal.csv"
+    markdown_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_schedule_proposal.md"
+    csv_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_schedule_proposal.csv"
 
-    working_hours = load_working_hours()
-    rows = connection.execute(
-        """
+    working_hours = load_working_hours(scope.model_path)
+    rows: list[OptimizationInputRow] = connection.execute(
+        f"""
         SELECT
             dag_id,
             schedule_resolved,
@@ -160,7 +249,7 @@ def build_recommendation_engine_schedule_proposal(connection) -> Path:
             mapped_edge_max_p90_ready_seconds,
             mapped_edge_max_avg_sensor_touch_seconds,
             mapped_edge_max_p90_sensor_touch_seconds
-        FROM recommendation_engine_optimization_inputs
+        FROM {scope.view_name('optimization_inputs')}
         WHERE is_reschedulable
         ORDER BY mapped_upstream_idle_wait_seconds DESC, dag_id
         """
@@ -169,9 +258,10 @@ def build_recommendation_engine_schedule_proposal(connection) -> Path:
     bucket_minutes = 15
     min_gap_minutes = 45
     finish_deadline_minute = 19 * 60
-    proposal_rows: list[dict[str, object]] = []
-    fixed_rows: list[dict[str, object]] = []
-    slotted_rows: list[dict[str, object]] = []
+    proposal_rows: list[ProposalRow] = []
+    fixed_rows: list[ProposalRow] = []
+    slotted_rows: list[SlottedDagPlanInput] = []
+    assigned_effective_starts: list[int] = []
 
     for row in rows:
         dag_id = row[0]
@@ -209,155 +299,155 @@ def build_recommendation_engine_schedule_proposal(connection) -> Path:
 
         if slot_count > 1:
             fixed_rows.append(
-                {
-                    "dag_id": dag_id,
-                    "current_schedule": schedule_resolved,
-                    "proposed_schedule": schedule_resolved,
-                    "current_primary_start_utc": format_minute_of_day(current_primary_start_minute),
-                    "proposed_primary_start_utc": format_minute_of_day(current_primary_start_minute),
-                    "current_effective_start_utc": format_minute_of_day(current_effective_start_minute),
-                    "proposed_effective_start_utc": format_minute_of_day(current_effective_start_minute),
-                    "estimated_upstream_ready_utc": format_minute_of_day(upstream_ready_minute),
-                    "current_wait_before_ready_minutes": max(0, upstream_ready_minute - current_primary_start_minute),
-                    "proposed_wait_before_ready_minutes": max(0, upstream_ready_minute - current_primary_start_minute),
-                    "current_gap_after_ready_minutes": max(0, current_primary_start_minute - upstream_ready_minute),
-                    "proposed_gap_after_ready_minutes": max(0, current_primary_start_minute - upstream_ready_minute),
-                    "wait_saved_minutes": 0,
-                    "current_estimated_finish_utc": format_minute_of_day(add_minutes(current_effective_start_minute, typical_processing_minutes)),
-                    "proposed_estimated_finish_utc": format_minute_of_day(add_minutes(current_effective_start_minute, typical_processing_minutes)),
-                    "shift_minutes": 0,
-                    "pressure_buffer_minutes": pressure_buffer_minutes,
-                    "effective_start_delay_minutes": effective_start_delay_minutes,
-                    "post_ready_setup_minutes": post_ready_setup_minutes,
-                    "direct_upstream_dependency_count": direct_upstream_dependency_count,
-                    "avg_dag_runtime_seconds": round(avg_dag_runtime_seconds or 0, 1),
-                    "p90_dag_runtime_seconds": round(p90_dag_runtime_seconds or 0, 1),
-                    "avg_effective_start_delay_seconds": round(avg_effective_start_delay_seconds or 0, 1),
-                    "p90_effective_start_delay_seconds": round(p90_effective_start_delay_seconds or 0, 1),
-                    "avg_effective_processing_seconds": round(avg_effective_processing_seconds or 0, 1),
-                    "median_effective_processing_seconds": round(median_effective_processing_seconds or 0, 1),
-                    "p90_effective_processing_seconds": round(p90_effective_processing_seconds or 0, 1),
-                    "total_scoped_idle_wait_seconds": round(total_scoped_idle_wait_seconds or 0, 1),
-                    "mapped_upstream_idle_wait_seconds": round(mapped_upstream_idle_wait_seconds or 0, 1),
-                    "mapped_edge_max_p90_idle_wait_seconds": round(mapped_edge_max_p90_idle_wait_seconds or 0, 1),
-                    "mapped_edge_max_avg_ready_seconds": round(mapped_edge_max_avg_ready_seconds or 0, 1),
-                    "mapped_edge_max_p90_ready_seconds": round(mapped_edge_max_p90_ready_seconds or 0, 1),
-                    "mapped_edge_max_avg_sensor_touch_seconds": round(mapped_edge_max_avg_sensor_touch_seconds or 0, 1),
-                    "mapped_edge_max_p90_sensor_touch_seconds": round(mapped_edge_max_p90_sensor_touch_seconds or 0, 1),
-                    "strategy": "kept_existing_multi_slot_schedule",
-                    "current_effective_start_minute": current_effective_start_minute,
-                    "effective_start_delay_minutes_raw": effective_start_delay_minutes,
-                    "effective_processing_minutes_raw": effective_processing_minutes,
-                    "typical_processing_minutes_raw": typical_processing_minutes,
-                    "schedule_suffix": suffix,
-                }
+                ProposalRow(
+                    dag_id=dag_id,
+                    current_schedule=schedule_resolved,
+                    proposed_schedule=schedule_resolved,
+                    current_primary_start_utc=format_minute_of_day(current_primary_start_minute),
+                    proposed_primary_start_utc=format_minute_of_day(current_primary_start_minute),
+                    current_effective_start_utc=format_minute_of_day(current_effective_start_minute),
+                    proposed_effective_start_utc=format_minute_of_day(current_effective_start_minute),
+                    estimated_upstream_ready_utc=format_minute_of_day(upstream_ready_minute),
+                    current_wait_before_ready_minutes=max(0, upstream_ready_minute - current_primary_start_minute),
+                    proposed_wait_before_ready_minutes=max(0, upstream_ready_minute - current_primary_start_minute),
+                    current_gap_after_ready_minutes=max(0, current_primary_start_minute - upstream_ready_minute),
+                    proposed_gap_after_ready_minutes=max(0, current_primary_start_minute - upstream_ready_minute),
+                    wait_saved_minutes=0,
+                    current_estimated_finish_utc=format_minute_of_day(add_minutes(current_effective_start_minute, typical_processing_minutes)),
+                    proposed_estimated_finish_utc=format_minute_of_day(add_minutes(current_effective_start_minute, typical_processing_minutes)),
+                    shift_minutes=0,
+                    pressure_buffer_minutes=pressure_buffer_minutes,
+                    effective_start_delay_minutes=effective_start_delay_minutes,
+                    post_ready_setup_minutes=post_ready_setup_minutes,
+                    direct_upstream_dependency_count=direct_upstream_dependency_count or 0,
+                    avg_dag_runtime_seconds=round(avg_dag_runtime_seconds or 0, 1),
+                    p90_dag_runtime_seconds=round(p90_dag_runtime_seconds or 0, 1),
+                    avg_effective_start_delay_seconds=round(avg_effective_start_delay_seconds or 0, 1),
+                    p90_effective_start_delay_seconds=round(p90_effective_start_delay_seconds or 0, 1),
+                    avg_effective_processing_seconds=round(avg_effective_processing_seconds or 0, 1),
+                    median_effective_processing_seconds=round(median_effective_processing_seconds or 0, 1),
+                    p90_effective_processing_seconds=round(p90_effective_processing_seconds or 0, 1),
+                    total_scoped_idle_wait_seconds=round(total_scoped_idle_wait_seconds or 0, 1),
+                    mapped_upstream_idle_wait_seconds=round(mapped_upstream_idle_wait_seconds or 0, 1),
+                    mapped_edge_max_p90_idle_wait_seconds=round(mapped_edge_max_p90_idle_wait_seconds or 0, 1),
+                    mapped_edge_max_avg_ready_seconds=round(mapped_edge_max_avg_ready_seconds or 0, 1),
+                    mapped_edge_max_p90_ready_seconds=round(mapped_edge_max_p90_ready_seconds or 0, 1),
+                    mapped_edge_max_avg_sensor_touch_seconds=round(mapped_edge_max_avg_sensor_touch_seconds or 0, 1),
+                    mapped_edge_max_p90_sensor_touch_seconds=round(mapped_edge_max_p90_sensor_touch_seconds or 0, 1),
+                    strategy="kept_existing_multi_slot_schedule",
+                )
             )
+            assigned_effective_starts.append(current_effective_start_minute)
         else:
             slotted_rows.append(
-                {
-                    "dag_id": dag_id,
-                    "current_schedule": schedule_resolved,
-                    "current_primary_start_minute": current_primary_start_minute,
-                    "current_effective_start_minute": current_effective_start_minute,
-                    "effective_start_delay_minutes_raw": effective_start_delay_minutes,
-                    "upstream_ready_minute": upstream_ready_minute,
-                    "post_ready_setup_minutes": post_ready_setup_minutes,
-                    "schedule_suffix": suffix,
-                    "pressure_buffer_minutes": pressure_buffer_minutes,
-                    "direct_upstream_dependency_count": direct_upstream_dependency_count,
-                    "avg_dag_runtime_seconds": round(avg_dag_runtime_seconds or 0, 1),
-                    "p90_dag_runtime_seconds": round(p90_dag_runtime_seconds or 0, 1),
-                    "avg_effective_start_delay_seconds": round(avg_effective_start_delay_seconds or 0, 1),
-                    "p90_effective_start_delay_seconds": round(p90_effective_start_delay_seconds or 0, 1),
-                    "avg_effective_processing_seconds": round(avg_effective_processing_seconds or 0, 1),
-                    "median_effective_processing_seconds": round(median_effective_processing_seconds or 0, 1),
-                    "p90_effective_processing_seconds": round(p90_effective_processing_seconds or 0, 1),
-                    "total_scoped_idle_wait_seconds": round(total_scoped_idle_wait_seconds or 0, 1),
-                    "mapped_upstream_idle_wait_seconds": round(mapped_upstream_idle_wait_seconds or 0, 1),
-                    "mapped_edge_max_p90_idle_wait_seconds": round(mapped_edge_max_p90_idle_wait_seconds or 0, 1),
-                    "mapped_edge_max_avg_ready_seconds": round(mapped_edge_max_avg_ready_seconds or 0, 1),
-                    "mapped_edge_max_p90_ready_seconds": round(mapped_edge_max_p90_ready_seconds or 0, 1),
-                    "mapped_edge_max_avg_sensor_touch_seconds": round(mapped_edge_max_avg_sensor_touch_seconds or 0, 1),
-                    "mapped_edge_max_p90_sensor_touch_seconds": round(mapped_edge_max_p90_sensor_touch_seconds or 0, 1),
-                    "effective_processing_minutes_raw": effective_processing_minutes,
-                    "typical_processing_minutes_raw": typical_processing_minutes,
-                }
+                SlottedDagPlanInput(
+                    dag_id=dag_id,
+                    current_schedule=schedule_resolved,
+                    current_primary_start_minute=current_primary_start_minute,
+                    current_effective_start_minute=current_effective_start_minute,
+                    effective_start_delay_minutes=effective_start_delay_minutes,
+                    upstream_ready_minute=upstream_ready_minute,
+                    post_ready_setup_minutes=post_ready_setup_minutes,
+                    schedule_suffix=suffix,
+                    pressure_buffer_minutes=pressure_buffer_minutes,
+                    direct_upstream_dependency_count=direct_upstream_dependency_count or 0,
+                    avg_dag_runtime_seconds=round(avg_dag_runtime_seconds or 0, 1),
+                    p90_dag_runtime_seconds=round(p90_dag_runtime_seconds or 0, 1),
+                    avg_effective_start_delay_seconds=round(avg_effective_start_delay_seconds or 0, 1),
+                    p90_effective_start_delay_seconds=round(p90_effective_start_delay_seconds or 0, 1),
+                    avg_effective_processing_seconds=round(avg_effective_processing_seconds or 0, 1),
+                    median_effective_processing_seconds=round(median_effective_processing_seconds or 0, 1),
+                    p90_effective_processing_seconds=round(p90_effective_processing_seconds or 0, 1),
+                    total_scoped_idle_wait_seconds=round(total_scoped_idle_wait_seconds or 0, 1),
+                    mapped_upstream_idle_wait_seconds=round(mapped_upstream_idle_wait_seconds or 0, 1),
+                    mapped_edge_max_p90_idle_wait_seconds=round(mapped_edge_max_p90_idle_wait_seconds or 0, 1),
+                    mapped_edge_max_avg_ready_seconds=round(mapped_edge_max_avg_ready_seconds or 0, 1),
+                    mapped_edge_max_p90_ready_seconds=round(mapped_edge_max_p90_ready_seconds or 0, 1),
+                    mapped_edge_max_avg_sensor_touch_seconds=round(mapped_edge_max_avg_sensor_touch_seconds or 0, 1),
+                    mapped_edge_max_p90_sensor_touch_seconds=round(mapped_edge_max_p90_sensor_touch_seconds or 0, 1),
+                    effective_processing_minutes=effective_processing_minutes,
+                    typical_processing_minutes=typical_processing_minutes,
+                )
             )
 
-    assigned_effective_starts = [row["current_effective_start_minute"] for row in fixed_rows]
-    for row in sorted(slotted_rows, key=lambda item: (item["current_effective_start_minute"], -item["mapped_upstream_idle_wait_seconds"], item["dag_id"])):
+    for row in sorted(slotted_rows, key=_slotted_row_sort_key):
         proposed_primary_start_minute, proposed_effective_start_minute = choose_primary_start_slot(
-            current_primary_start_minute=row["current_primary_start_minute"],
+            current_primary_start_minute=row.current_primary_start_minute,
             assigned_effective_starts=assigned_effective_starts,
             working_hours=working_hours,
             bucket_minutes=bucket_minutes,
             min_gap_minutes=min_gap_minutes,
             finish_deadline_minute=finish_deadline_minute,
-            effective_processing_minutes=row["effective_processing_minutes_raw"],
-            upstream_ready_minute=row["upstream_ready_minute"],
-            post_ready_setup_minutes=row["post_ready_setup_minutes"],
+            effective_processing_minutes=row.effective_processing_minutes,
+            upstream_ready_minute=row.upstream_ready_minute,
+            post_ready_setup_minutes=row.post_ready_setup_minutes,
         )
         assigned_effective_starts.append(proposed_effective_start_minute)
 
         proposed_minute = proposed_primary_start_minute % 60
         proposed_hour = proposed_primary_start_minute // 60
-        proposed_schedule = format_cron(proposed_minute, [proposed_hour], row["schedule_suffix"])
+        proposed_schedule = format_cron(proposed_minute, [proposed_hour], row.schedule_suffix)
+
+        current_wait_before_ready_minutes = max(0, row.upstream_ready_minute - row.current_primary_start_minute)
+        proposed_wait_before_ready_minutes = max(0, row.upstream_ready_minute - proposed_primary_start_minute)
+        current_gap_after_ready_minutes = max(0, row.current_primary_start_minute - row.upstream_ready_minute)
+        proposed_gap_after_ready_minutes = max(0, proposed_primary_start_minute - row.upstream_ready_minute)
 
         proposal_rows.append(
-            finalize_output_row({
-                "dag_id": row["dag_id"],
-                "current_schedule": row["current_schedule"],
-                "proposed_schedule": proposed_schedule,
-                "current_primary_start_utc": format_minute_of_day(row["current_primary_start_minute"]),
-                "proposed_primary_start_utc": format_minute_of_day(proposed_primary_start_minute),
-                "current_effective_start_utc": format_minute_of_day(row["current_effective_start_minute"]),
-                "proposed_effective_start_utc": format_minute_of_day(proposed_effective_start_minute),
-                "estimated_upstream_ready_utc": format_minute_of_day(row["upstream_ready_minute"]),
-                "current_wait_before_ready_minutes": max(0, row["upstream_ready_minute"] - row["current_primary_start_minute"]),
-                "proposed_wait_before_ready_minutes": max(0, row["upstream_ready_minute"] - proposed_primary_start_minute),
-                "current_gap_after_ready_minutes": max(0, row["current_primary_start_minute"] - row["upstream_ready_minute"]),
-                "proposed_gap_after_ready_minutes": max(0, proposed_primary_start_minute - row["upstream_ready_minute"]),
-                "wait_saved_minutes": max(0, row["upstream_ready_minute"] - row["current_primary_start_minute"]) - max(0, row["upstream_ready_minute"] - proposed_primary_start_minute),
-                "current_estimated_finish_utc": format_minute_of_day(add_minutes(row["current_effective_start_minute"], row["typical_processing_minutes_raw"])),
-                "proposed_estimated_finish_utc": format_minute_of_day(add_minutes(proposed_effective_start_minute, row["typical_processing_minutes_raw"])),
-                "shift_minutes": proposed_primary_start_minute - row["current_primary_start_minute"],
-                "pressure_buffer_minutes": row["pressure_buffer_minutes"],
-                "effective_start_delay_minutes": row["effective_start_delay_minutes_raw"],
-                "post_ready_setup_minutes": row["post_ready_setup_minutes"],
-                "direct_upstream_dependency_count": row["direct_upstream_dependency_count"],
-                "avg_dag_runtime_seconds": row["avg_dag_runtime_seconds"],
-                "p90_dag_runtime_seconds": row["p90_dag_runtime_seconds"],
-                "avg_effective_start_delay_seconds": row["avg_effective_start_delay_seconds"],
-                "p90_effective_start_delay_seconds": row["p90_effective_start_delay_seconds"],
-                "avg_effective_processing_seconds": row["avg_effective_processing_seconds"],
-                "median_effective_processing_seconds": row["median_effective_processing_seconds"],
-                "p90_effective_processing_seconds": row["p90_effective_processing_seconds"],
-                "total_scoped_idle_wait_seconds": row["total_scoped_idle_wait_seconds"],
-                "mapped_upstream_idle_wait_seconds": row["mapped_upstream_idle_wait_seconds"],
-                "mapped_edge_max_p90_idle_wait_seconds": row["mapped_edge_max_p90_idle_wait_seconds"],
-                "mapped_edge_max_avg_ready_seconds": row["mapped_edge_max_avg_ready_seconds"],
-                "mapped_edge_max_p90_ready_seconds": row["mapped_edge_max_p90_ready_seconds"],
-                "mapped_edge_max_avg_sensor_touch_seconds": row["mapped_edge_max_avg_sensor_touch_seconds"],
-                "mapped_edge_max_p90_sensor_touch_seconds": row["mapped_edge_max_p90_sensor_touch_seconds"],
-                "strategy": "upstream_ready_slot_search",
-            })
+            ProposalRow(
+                dag_id=row.dag_id,
+                current_schedule=row.current_schedule,
+                proposed_schedule=proposed_schedule,
+                current_primary_start_utc=format_minute_of_day(row.current_primary_start_minute),
+                proposed_primary_start_utc=format_minute_of_day(proposed_primary_start_minute),
+                current_effective_start_utc=format_minute_of_day(row.current_effective_start_minute),
+                proposed_effective_start_utc=format_minute_of_day(proposed_effective_start_minute),
+                estimated_upstream_ready_utc=format_minute_of_day(row.upstream_ready_minute),
+                current_wait_before_ready_minutes=current_wait_before_ready_minutes,
+                proposed_wait_before_ready_minutes=proposed_wait_before_ready_minutes,
+                current_gap_after_ready_minutes=current_gap_after_ready_minutes,
+                proposed_gap_after_ready_minutes=proposed_gap_after_ready_minutes,
+                wait_saved_minutes=current_wait_before_ready_minutes - proposed_wait_before_ready_minutes,
+                current_estimated_finish_utc=format_minute_of_day(add_minutes(row.current_effective_start_minute, row.typical_processing_minutes)),
+                proposed_estimated_finish_utc=format_minute_of_day(add_minutes(proposed_effective_start_minute, row.typical_processing_minutes)),
+                shift_minutes=proposed_primary_start_minute - row.current_primary_start_minute,
+                pressure_buffer_minutes=row.pressure_buffer_minutes,
+                effective_start_delay_minutes=row.effective_start_delay_minutes,
+                post_ready_setup_minutes=row.post_ready_setup_minutes,
+                direct_upstream_dependency_count=row.direct_upstream_dependency_count,
+                avg_dag_runtime_seconds=row.avg_dag_runtime_seconds,
+                p90_dag_runtime_seconds=row.p90_dag_runtime_seconds,
+                avg_effective_start_delay_seconds=row.avg_effective_start_delay_seconds,
+                p90_effective_start_delay_seconds=row.p90_effective_start_delay_seconds,
+                avg_effective_processing_seconds=row.avg_effective_processing_seconds,
+                median_effective_processing_seconds=row.median_effective_processing_seconds,
+                p90_effective_processing_seconds=row.p90_effective_processing_seconds,
+                total_scoped_idle_wait_seconds=row.total_scoped_idle_wait_seconds,
+                mapped_upstream_idle_wait_seconds=row.mapped_upstream_idle_wait_seconds,
+                mapped_edge_max_p90_idle_wait_seconds=row.mapped_edge_max_p90_idle_wait_seconds,
+                mapped_edge_max_avg_ready_seconds=row.mapped_edge_max_avg_ready_seconds,
+                mapped_edge_max_p90_ready_seconds=row.mapped_edge_max_p90_ready_seconds,
+                mapped_edge_max_avg_sensor_touch_seconds=row.mapped_edge_max_avg_sensor_touch_seconds,
+                mapped_edge_max_p90_sensor_touch_seconds=row.mapped_edge_max_p90_sensor_touch_seconds,
+                strategy="upstream_ready_slot_search",
+            )
         )
 
-    proposal_rows.extend(finalize_output_row(row) for row in fixed_rows)
-    proposal_rows.sort(key=lambda item: item["mapped_upstream_idle_wait_seconds"], reverse=True)
+    proposal_rows.extend(fixed_rows)
+    proposal_rows.sort(key=lambda item: item.mapped_upstream_idle_wait_seconds, reverse=True)
 
-    total_wait_saved_minutes = sum(int(proposal["wait_saved_minutes"]) for proposal in proposal_rows)
-    rescheduled_count = sum(1 for proposal in proposal_rows if proposal["strategy"] != "kept_existing_multi_slot_schedule")
+    total_wait_saved_minutes = sum(proposal.wait_saved_minutes for proposal in proposal_rows)
+    rescheduled_count = sum(1 for proposal in proposal_rows if proposal.strategy != "kept_existing_multi_slot_schedule")
 
     with csv_path.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=list(proposal_rows[0].keys()))
+        writer = csv.DictWriter(csv_file, fieldnames=list(proposal_rows[0].to_dict().keys()))
         writer.writeheader()
-        writer.writerows(proposal_rows)
+        writer.writerows(proposal.to_dict() for proposal in proposal_rows)
 
     lines = [
-        "# Recommendation Engine Schedule Proposal",
+        f"# {scope.display_name} Schedule Proposal",
         "",
-        "This is a first heuristic schedule proposal for the five DS-owned recommendation_engine DAGs.",
+        f"This is a first heuristic schedule proposal for the DS-owned {scope.scope_id} DAGs in this scope.",
         "It uses the existing working-hours constraint, the static dependency graph, and observed wait pressure from the DuckDB runtime views.",
         "",
         f"Across {rescheduled_count} rescheduled DAGs, the proposal removes about {format_duration_minutes(total_wait_saved_minutes)} of pre-ready waiting time.",
@@ -383,11 +473,11 @@ def build_recommendation_engine_schedule_proposal(connection) -> Path:
     for proposal in proposal_rows:
         lines.append(
             "| {} | {} | {} | {} | {} |".format(
-                proposal["dag_id"],
-                format_duration_minutes(int(proposal["current_wait_before_ready_minutes"])),
-                format_duration_minutes(int(proposal["proposed_wait_before_ready_minutes"])),
-                format_duration_minutes(int(proposal["wait_saved_minutes"])),
-                proposal["estimated_upstream_ready_utc"],
+                proposal.dag_id,
+                format_duration_minutes(proposal.current_wait_before_ready_minutes),
+                format_duration_minutes(proposal.proposed_wait_before_ready_minutes),
+                format_duration_minutes(proposal.wait_saved_minutes),
+                proposal.estimated_upstream_ready_utc,
             )
         )
 
@@ -398,27 +488,27 @@ def build_recommendation_engine_schedule_proposal(connection) -> Path:
             "",
             "```mermaid",
             "gantt",
-            "    title Recommendation Engine Current vs Proposed Timing",
+            f"    title {scope.display_name} Current vs Proposed Timing",
             "    dateFormat HH:mm",
             "    axisFormat %H:%M",
         ]
     )
 
     for proposal in proposal_rows:
-        current_start = proposal["current_primary_start_utc"]
-        proposed_start = proposal["proposed_primary_start_utc"]
-        ready_time = proposal["estimated_upstream_ready_utc"]
-        current_effective = proposal["current_effective_start_utc"]
-        proposed_effective = proposal["proposed_effective_start_utc"]
-        current_wait = int(proposal["current_wait_before_ready_minutes"])
-        proposed_wait = int(proposal["proposed_wait_before_ready_minutes"])
-        current_gap_after_ready = int(proposal["current_gap_after_ready_minutes"])
-        proposed_gap_after_ready = int(proposal["proposed_gap_after_ready_minutes"])
-        processing_minutes = int(round(float(proposal["median_effective_processing_seconds"]) / 60.0))
-        wait_saved = int(proposal["wait_saved_minutes"])
+        current_start = proposal.current_primary_start_utc
+        proposed_start = proposal.proposed_primary_start_utc
+        ready_time = proposal.estimated_upstream_ready_utc
+        current_effective = proposal.current_effective_start_utc
+        proposed_effective = proposal.proposed_effective_start_utc
+        current_wait = proposal.current_wait_before_ready_minutes
+        proposed_wait = proposal.proposed_wait_before_ready_minutes
+        current_gap_after_ready = proposal.current_gap_after_ready_minutes
+        proposed_gap_after_ready = proposal.proposed_gap_after_ready_minutes
+        processing_minutes = int(round(proposal.median_effective_processing_seconds / 60.0))
+        wait_saved = proposal.wait_saved_minutes
 
         current_lines = [
-            f"    section {proposal['dag_id']} current",
+            f"    section {proposal.dag_id} current",
             f"    Current wait ({format_duration_minutes(current_wait)}) :crit, {current_start}, {current_wait}m",
             f"    Current estimated run ({format_duration_minutes(processing_minutes)}) :active, {current_effective}, {max(processing_minutes, 1)}m",
         ]
@@ -429,7 +519,7 @@ def build_recommendation_engine_schedule_proposal(connection) -> Path:
             )
 
         proposed_lines = [
-            f"    section {proposal['dag_id']} proposed",
+            f"    section {proposal.dag_id} proposed",
             f"    Proposed wait ({format_duration_minutes(proposed_wait)}) :active, {proposed_start}, {proposed_wait}m",
             f"    Proposed estimated run ({format_duration_minutes(processing_minutes)}) :active, {proposed_effective}, {max(processing_minutes, 1)}m",
             f"    Wait saved ({format_duration_minutes(wait_saved)}) :done, {proposed_start}, {max(wait_saved, 1)}m",
@@ -463,20 +553,20 @@ def build_recommendation_engine_schedule_proposal(connection) -> Path:
     for proposal in proposal_rows:
         lines.append(
             "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
-                proposal["dag_id"],
-                proposal["current_schedule"],
-                proposal["proposed_schedule"],
-                proposal["current_primary_start_utc"],
-                proposal["proposed_primary_start_utc"],
-                proposal["estimated_upstream_ready_utc"],
-                format_duration_minutes(int(proposal["proposed_gap_after_ready_minutes"])),
-                proposal["current_estimated_finish_utc"],
-                proposal["proposed_estimated_finish_utc"],
-                proposal["wait_saved_minutes"],
-                proposal["shift_minutes"],
-                proposal["post_ready_setup_minutes"],
-                proposal["pressure_buffer_minutes"],
-                proposal["strategy"],
+                proposal.dag_id,
+                proposal.current_schedule,
+                proposal.proposed_schedule,
+                proposal.current_primary_start_utc,
+                proposal.proposed_primary_start_utc,
+                proposal.estimated_upstream_ready_utc,
+                format_duration_minutes(proposal.proposed_gap_after_ready_minutes),
+                proposal.current_estimated_finish_utc,
+                proposal.proposed_estimated_finish_utc,
+                proposal.wait_saved_minutes,
+                proposal.shift_minutes,
+                proposal.post_ready_setup_minutes,
+                proposal.pressure_buffer_minutes,
+                proposal.strategy,
             )
         )
 
@@ -484,3 +574,7 @@ def build_recommendation_engine_schedule_proposal(connection) -> Path:
     print(f"wrote {markdown_path}")
     print(f"wrote {csv_path}")
     return markdown_path
+
+
+def build_recommendation_engine_schedule_proposal(connection: duckdb.DuckDBPyConnection) -> Path:
+    return build_scope_schedule_proposal(connection, get_scope("recommendation_engine"))

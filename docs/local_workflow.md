@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This workflow builds a local DuckDB analytics layer from Airflow metadata exports.
+This workflow builds a local DuckDB analytics layer from Airflow metadata exports and then materializes scope-specific views for each configured DAG hypergraph.
 
 ## Environment Setup
 
@@ -48,7 +48,7 @@ This creates physical raw tables:
 uv run hypergraph-scheduler build-views
 ```
 
-This step also loads the versioned recommendation_engine static inputs stored under `docs/recommendation_engine_inputs/`.
+This step also discovers each configured scope under `docs/*_inputs/`, loads its versioned static inputs, and creates scope-specific views in DuckDB.
 
 This creates:
 
@@ -62,9 +62,13 @@ This creates:
 
 ```bash
 uv run hypergraph-scheduler build-report
+uv run hypergraph-scheduler build-report --scope recommendation_engine
 ```
 
-This writes:
+Without `--scope`, this writes one candidate report per configured scope.
+With `--scope`, it writes only that scope's report.
+
+Example output:
 
 - `artifacts/recommendation_engine_candidate_report.md`
 
@@ -72,17 +76,24 @@ This writes:
 
 ```bash
 uv run hypergraph-scheduler build-schedule-proposal
+uv run hypergraph-scheduler build-schedule-proposal --scope recommendation_engine
 ```
 
-This writes:
+Without `--scope`, this writes one proposal per configured scope.
+With `--scope`, it writes only that scope's proposal artifacts.
+
+Example output:
 
 - `artifacts/recommendation_engine_schedule_proposal.md`
 - `artifacts/recommendation_engine_schedule_proposal.csv`
 
-## Versioned Recommendation Engine Inputs
+## Configured Scope Inputs
 
-The recommendation_engine scoped analysis uses local committed copies of the dependency and optimization inputs:
+Each scope is discovered from `docs/*_inputs/scope.json` and uses local committed copies of its dependency and optimization inputs.
 
+The current recommendation_engine scope uses:
+
+- `docs/recommendation_engine_inputs/scope.json`
 - `docs/recommendation_engine_inputs/recommendation_engine_dag_dependencies.json`
 - `docs/recommendation_engine_inputs/recommendation_engine_schedule_optimization_model.json`
 
@@ -91,4 +102,4 @@ Supporting reference material is also versioned alongside them:
 - `docs/recommendation_engine_inputs/dag_schedules_and_dependencies.md`
 - `docs/recommendation_engine_inputs/recommendation_engine_schedule_optimization_formulation.md`
 
-Those files are the source of the graph nodes, graph edges, and optimization defaults loaded into DuckDB by `build-views`.
+Those files are the source of the graph nodes, graph edges, seed-edge sensor mapping, and optimization defaults loaded into DuckDB by `build-views`.

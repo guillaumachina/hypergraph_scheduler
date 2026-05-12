@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import csv
 import json
+from pathlib import Path
 
 from hypergraph_scheduler.optimizer import (
-    MODEL_PATH,
+    ProposalRow,
     WorkingHours,
-    build_recommendation_engine_schedule_proposal,
+    build_scope_schedule_proposal,
     choose_primary_start_slot,
-    finalize_output_row,
     format_duration_minutes,
     parse_cron_hours,
 )
+from hypergraph_scheduler.scopes import ScopeDefinition
 
 
 def test_choose_primary_start_slot_prefers_upstream_ready_window() -> None:
@@ -48,24 +49,47 @@ def test_choose_primary_start_slot_prefers_late_slot_over_gap_violation() -> Non
     assert effective == slot
 
 
-def test_finalize_output_row_removes_internal_keys() -> None:
-    result = finalize_output_row(
-        {
-            "dag_id": "recipe_recommender",
-            "strategy": "upstream_ready_slot_search",
-            "current_primary_start_minute": 425,
-            "current_effective_start_minute": 639,
-            "effective_start_delay_minutes_raw": 214,
-            "effective_processing_minutes_raw": 443,
-            "typical_processing_minutes_raw": 443,
-            "schedule_suffix": "* * 3",
-        }
+def test_proposal_row_to_dict_keeps_output_shape() -> None:
+    result = ProposalRow(
+        dag_id="recipe_recommender",
+        current_schedule="05 07 * * 3",
+        proposed_schedule="30 10 * * 3",
+        current_primary_start_utc="07:05",
+        proposed_primary_start_utc="10:30",
+        current_effective_start_utc="10:39",
+        proposed_effective_start_utc="10:39",
+        estimated_upstream_ready_utc="10:30",
+        current_wait_before_ready_minutes=205,
+        proposed_wait_before_ready_minutes=0,
+        current_gap_after_ready_minutes=0,
+        proposed_gap_after_ready_minutes=0,
+        wait_saved_minutes=205,
+        current_estimated_finish_utc="18:02",
+        proposed_estimated_finish_utc="18:02",
+        shift_minutes=205,
+        pressure_buffer_minutes=1,
+        effective_start_delay_minutes=214,
+        post_ready_setup_minutes=9,
+        direct_upstream_dependency_count=3,
+        avg_dag_runtime_seconds=30055.2,
+        p90_dag_runtime_seconds=39863.4,
+        avg_effective_start_delay_seconds=12840.0,
+        p90_effective_start_delay_seconds=15000.0,
+        avg_effective_processing_seconds=26580.0,
+        median_effective_processing_seconds=26580.0,
+        p90_effective_processing_seconds=30000.0,
+        total_scoped_idle_wait_seconds=1000.0,
+        mapped_upstream_idle_wait_seconds=1000.0,
+        mapped_edge_max_p90_idle_wait_seconds=60.0,
+        mapped_edge_max_avg_ready_seconds=12300.0,
+        mapped_edge_max_p90_ready_seconds=13200.0,
+        mapped_edge_max_avg_sensor_touch_seconds=0.0,
+        mapped_edge_max_p90_sensor_touch_seconds=0.0,
+        strategy="upstream_ready_slot_search",
     )
 
-    assert result == {
-        "dag_id": "recipe_recommender",
-        "strategy": "upstream_ready_slot_search",
-    }
+    assert result.to_dict()["dag_id"] == "recipe_recommender"
+    assert result.to_dict()["strategy"] == "upstream_ready_slot_search"
 
 
 def test_parse_cron_hours_and_format_duration_minutes() -> None:
@@ -154,20 +178,52 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
         ),
     ]
     connection = _FakeConnection(rows)
+    scope = ScopeDefinition(
+        scope_id="monday_ds",
+        display_name="Monday DS",
+        input_dir=tmp_path,
+        graph_path=tmp_path / "graph.json",
+        model_path=model_path,
+        artifact_prefix="monday_ds",
+        seed_edge_sensor_map=[],
+    )
 
-    monkeypatch.setattr("hypergraph_scheduler.optimizer.MODEL_PATH", model_path)
     monkeypatch.setattr("hypergraph_scheduler.optimizer.ARTIFACTS_DIR", tmp_path)
 
-    markdown_path = build_recommendation_engine_schedule_proposal(connection)
+    markdown_path = build_scope_schedule_proposal(connection, scope)
 
-    csv_path = tmp_path / "recommendation_engine_schedule_proposal.csv"
-    assert markdown_path == tmp_path / "recommendation_engine_schedule_proposal.md"
+    csv_path = tmp_path / "monday_ds_schedule_proposal.csv"
+    assert markdown_path == tmp_path / "monday_ds_schedule_proposal.md"
     assert markdown_path.exists()
     assert csv_path.exists()
-    assert connection.queries
+    assert connection.queries == [
+        """
+        SELECT
+            dag_id,
+            schedule_resolved,
+            direct_upstream_dependency_count,
+            avg_dag_runtime_seconds,
+            p90_dag_runtime_seconds,
+            avg_effective_start_delay_seconds,
+            p90_effective_start_delay_seconds,
+            avg_effective_processing_seconds,
+            median_effective_processing_seconds,
+            p90_effective_processing_seconds,
+            total_scoped_idle_wait_seconds,
+            mapped_upstream_idle_wait_seconds,
+            mapped_edge_max_p90_idle_wait_seconds,
+            mapped_edge_max_avg_ready_seconds,
+            mapped_edge_max_p90_ready_seconds,
+            mapped_edge_max_avg_sensor_touch_seconds,
+            mapped_edge_max_p90_sensor_touch_seconds
+        FROM monday_ds_optimization_inputs
+        WHERE is_reschedulable
+        ORDER BY mapped_upstream_idle_wait_seconds DESC, dag_id
+        """
+    ]
 
     markdown_text = markdown_path.read_text(encoding="utf-8")
-    assert "# Recommendation Engine Schedule Proposal" in markdown_text
+    assert "# Monday DS Schedule Proposal" in markdown_text
     assert "recipe_recommender" in markdown_text
     assert "30 10 * * 3" in markdown_text
     assert "kept_existing_multi_slot_schedule" in markdown_text

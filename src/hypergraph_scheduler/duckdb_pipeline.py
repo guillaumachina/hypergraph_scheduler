@@ -5,12 +5,15 @@ import duckdb
 import pandas as pd
 
 from hypergraph_scheduler.config import DuckDBConfig, DEFAULT_DUCKDB_CONFIG
-from hypergraph_scheduler.paths import RAW_DATA_DIR, RECOMMENDATION_ENGINE_INPUTS_DIR, SQL_DIR
+from hypergraph_scheduler.paths import RAW_DATA_DIR, SQL_DIR
+from hypergraph_scheduler.scopes import ScopeDefinition, discover_scopes
 
 
 def connect(config: DuckDBConfig = DEFAULT_DUCKDB_CONFIG) -> duckdb.DuckDBPyConnection:
     config.database_path.parent.mkdir(parents=True, exist_ok=True)
     return duckdb.connect(str(config.database_path))
+
+
 def create_raw_table_from_path(
     connection: duckdb.DuckDBPyConnection,
     table_name: str,
@@ -52,27 +55,24 @@ def replace_table_from_dataframe(
     connection.unregister("temp_frame")
 
 
-def load_recommendation_engine_static_inputs(connection: duckdb.DuckDBPyConnection) -> None:
-    graph_path = RECOMMENDATION_ENGINE_INPUTS_DIR / "recommendation_engine_dag_dependencies.json"
-    model_path = RECOMMENDATION_ENGINE_INPUTS_DIR / "recommendation_engine_schedule_optimization_model.json"
-
-    graph = json.loads(graph_path.read_text())
-    model = json.loads(model_path.read_text())
+def load_scope_static_inputs(connection: duckdb.DuckDBPyConnection, scope: ScopeDefinition) -> None:
+    graph = json.loads(scope.graph_path.read_text(encoding="utf-8"))
+    model = json.loads(scope.model_path.read_text(encoding="utf-8"))
 
     replace_table_from_dataframe(
         connection,
-        "raw_recommendation_engine_graph_nodes",
+        scope.raw_table_name("graph_nodes"),
         pd.DataFrame(graph["nodes"]),
     )
     replace_table_from_dataframe(
         connection,
-        "raw_recommendation_engine_graph_edges",
+        scope.raw_table_name("graph_edges"),
         pd.DataFrame(graph["edges"]),
     )
 
-    optimization_rows = []
+    optimization_rows: list[dict[str, object]] = []
     for dag in model["dags"]:
-        constraints = dag.get("constraints") or {}
+        constraints: dict[str, object] = dag.get("constraints") or {}
         optimization_rows.append(
             {
                 "dag_id": dag["dag_id"],
@@ -85,19 +85,33 @@ def load_recommendation_engine_static_inputs(connection: duckdb.DuckDBPyConnecti
 
     replace_table_from_dataframe(
         connection,
-        "raw_recommendation_engine_optimization_dags",
+        scope.raw_table_name("optimization_dags"),
         pd.DataFrame(optimization_rows),
     )
 
+    seed_edge_sensor_map = pd.DataFrame(
+        scope.seed_edge_sensor_map,
+        columns=["from_dag_id", "to_dag_id", "sensor_task_id"],
+    )
+    replace_table_from_dataframe(
+        connection,
+        scope.raw_table_name("seed_edge_sensor_map"),
+        seed_edge_sensor_map,
+    )
+
+
+def render_scope_views_sql(scope: ScopeDefinition) -> str:
+    template_path = SQL_DIR / "transform" / "build_scope_views.sql"
+    return template_path.read_text(encoding="utf-8").replace("__SCOPE__", scope.scope_id)
+
 
 def build_runtime_views(connection: duckdb.DuckDBPyConnection) -> None:
-    load_recommendation_engine_static_inputs(connection)
-
     runtime_sql_path = SQL_DIR / "transform" / "build_runtime_views.sql"
-    connection.execute(runtime_sql_path.read_text())
+    connection.execute(runtime_sql_path.read_text(encoding="utf-8"))
 
-    scoped_sql_path = SQL_DIR / "transform" / "build_recommendation_engine_views.sql"
-    connection.execute(scoped_sql_path.read_text())
+    for scope in discover_scopes():
+        load_scope_static_inputs(connection, scope)
+        connection.execute(render_scope_views_sql(scope))
 
 
 def initialize_local_database(config: DuckDBConfig = DEFAULT_DUCKDB_CONFIG) -> None:

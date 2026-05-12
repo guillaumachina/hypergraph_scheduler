@@ -1,0 +1,42 @@
+{
+  "scope_id": "recommendation_engine",
+  "display_name": "Recommendation Engine",
+  "artifact_prefix": "recommendation_engine",
+  "seed_edge_sensor_map": [
+    {
+      "from_dag_id": "pipeline_end",
+      "to_dag_id": "market_item_recommender",
+      "sensor_task_id": "wait_for_dwh_loaded"
+    },
+    {
+      "from_dag_id": "custom_reports",
+      "to_dag_id": "recipe_recommender",
+      "sensor_task_id": "wait_pipeline_end.wait_for_custom_reports"
+    },
+    {
+      "from_dag_id": "customer_feature_groups_sf",
+      "to_dag_id": "recipe_recommender",
+      "sensor_task_id": "wait_pipeline_end.wait_for_customer_fg_sf"
+    },
+    {
+      "from_dag_id": "recipe_feature_groups_sf",
+      "to_dag_id": "recipe_recommender",
+      "sensor_task_id": "wait_pipeline_end.wait_for_recipe_fg_sf"
+    },
+    {
+      "from_dag_id": "customer_feature_groups_sf",
+      "to_dag_id": "relevance_scoring",
+      "sensor_task_id": "wait_pipeline_end.wait_for_customer_fg_sf"
+    },
+    {
+      "from_dag_id": "recipe_feature_groups_sf",
+      "to_dag_id": "relevance_scoring",
+      "sensor_task_id": "wait_pipeline_end.wait_for_recipe_fg_sf"
+    },
+    {
+      "from_dag_id": "customer_feature_groups_sf",
+      "to_dag_id": "user_clustering_predict",
+      "sensor_task_id": "wait_for_customer_fg_sf"
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 # Recommendation Engine Input Provenance
 
-`hypergraph_scheduler` depends on four versioned files in this directory:
+`hypergraph_scheduler` discovers this scope from `scope.json` and depends on the versioned files in this directory:
 
+- `scope.json`
 - `recommendation_engine_dag_dependencies.json`
 - `recommendation_engine_schedule_optimization_model.json`
 - `dag_schedules_and_dependencies.md`
@@ -9,11 +10,12 @@
 
 ## Why They Are Vendored Here
 
-These files were originally maintained with the recommendation_engine dependency modeling work, but `hypergraph_scheduler` reads them during `build-views`.
+These files were originally maintained with the recommendation_engine dependency modeling work, but `hypergraph_scheduler` now discovers this directory as one configured scope during `build-views`.
 Keeping committed copies here removes the hidden dependency on a sibling checkout and makes the workflow reproducible from this repository alone.
 
 ## What They Contain
 
+- `scope.json`: scope metadata used to discover this input directory, define the display name, and map seed edges to the sensor task ids used for wait-pressure analysis.
 - `recommendation_engine_dag_dependencies.json`: normalized machine-readable graph of the scoped DAG nodes and edges.
 - `recommendation_engine_schedule_optimization_model.json`: scheduling-oriented model containing DAG attributes, optimization defaults, and precedence constraints.
 - `dag_schedules_and_dependencies.md`: human-readable inventory of schedules, dependencies, and the recursive upstream expansion used to build the model.
@@ -48,5 +50,5 @@ If the supporting reference material changes as well, refresh these too:
 After refreshing them, rebuild the local DuckDB views:
 
 ```bash
-python -m hypergraph_scheduler build-views
+uv run hypergraph-scheduler build-views
 ```

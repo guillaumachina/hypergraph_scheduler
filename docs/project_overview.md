@@ -1,6 +1,6 @@
 # Project Overview
 
-This project is the working area for building a local analytics and optimization workflow around Airflow DAG rescheduling.
+This project is the working area for building a local analytics and optimization workflow around Airflow DAG rescheduling across multiple DS-owned DAG scopes.
 
 ## Planned Workflow
 
@@ -12,19 +12,19 @@ This project is the working area for building a local analytics and optimization
 
 ## Current Focus
 
-The first optimization slice is restricted to recommendation_engine DAGs that the DS team can actually reschedule.
+The first optimization slice is still recommendation_engine, but the codebase is now structured to support additional DS DAG hypergraphs on other scheduled days.
 
-- recommendation_engine seed DAGs are treated as candidate DAGs for schedule changes
+- each configured scope defines its own DS-owned seed DAGs as candidates for schedule changes
 - recursively required upstream DAGs are treated as fixed context for dependency and waiting analysis
-- additional non-recommendation-engine DAG families can be added later as new controllable scopes
+- additional DS DAG families can be added later as new controllable scopes by adding another `docs/*_inputs/` directory
 
 Current scoped outputs:
 
-- recommendation_engine runtime summary views in DuckDB
-- edge-level wait estimates for mapped recommendation_engine seed dependencies
-- generated Markdown report under `artifacts/` for the five reschedulable seed DAGs
-- heuristic schedule proposal artifacts for the five reschedulable seed DAGs
-- versioned recommendation_engine dependency and optimization inputs under `docs/recommendation_engine_inputs/`
+- scope-specific runtime summary views in DuckDB
+- edge-level wait estimates for mapped seed dependencies within each scope
+- generated Markdown reports under `artifacts/` for each configured scope
+- heuristic schedule proposal artifacts for each configured scope
+- versioned scope inputs under `docs/*_inputs/`
 
 ## Initial Deliverables
 
@@ -35,6 +35,6 @@ Current scoped outputs:
 
 ## Input Provenance
 
-The recommendation_engine dependency graph and optimization defaults are committed with this repository under `docs/recommendation_engine_inputs/`.
-They were originally derived from the recommendation_engine DAG definitions and recursively referenced upstream DAGs across the related repos.
-The vendored copies make the scheduler reproducible without requiring a parallel checkout of `recommendation_engine`.
+Each scope's dependency graph and optimization defaults are committed with this repository under `docs/*_inputs/`.
+The current recommendation_engine scope was derived from the recommendation_engine DAG definitions and recursively referenced upstream DAGs across the related repos.
+The vendored copies make the scheduler reproducible without requiring parallel checkouts of the source DAG repositories.

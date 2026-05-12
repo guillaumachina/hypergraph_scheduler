@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from hypergraph_scheduler.paths import ARTIFACTS_DIR
+from hypergraph_scheduler.scopes import ScopeDefinition, get_scope
 
 
 def _format_seconds(value: float | None) -> str:
@@ -15,12 +16,12 @@ def _format_hours(value: float | None) -> str:
     return f"{value / 3600.0:,.2f}"
 
 
-def build_recommendation_engine_report(connection) -> Path:
+def build_scope_report(connection, scope: ScopeDefinition) -> Path:
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = ARTIFACTS_DIR / "recommendation_engine_candidate_report.md"
+    output_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_candidate_report.md"
 
     candidate_rows = connection.execute(
-        """
+        f"""
         SELECT
             dag_id,
             schedule_resolved,
@@ -34,13 +35,13 @@ def build_recommendation_engine_report(connection) -> Path:
             mapped_edge_max_p90_idle_wait_seconds,
             mapped_edge_max_avg_sensor_touch_seconds,
             direct_upstream_dependency_count
-        FROM recommendation_engine_candidate_report
+        FROM {scope.view_name('candidate_report')}
         ORDER BY mapped_upstream_idle_wait_seconds DESC, dag_id
         """
     ).fetchall()
 
     edge_rows = connection.execute(
-        """
+        f"""
         SELECT
             from_dag_id,
             to_dag_id,
@@ -48,15 +49,15 @@ def build_recommendation_engine_report(connection) -> Path:
             sensor_run_count,
             total_idle_wait_seconds,
             p90_idle_wait_seconds
-        FROM recommendation_engine_seed_edge_waits
+        FROM {scope.view_name('seed_edge_waits')}
         ORDER BY COALESCE(total_idle_wait_seconds, 0) DESC, to_dag_id, from_dag_id
         """
     ).fetchall()
 
     lines = [
-        "# Recommendation Engine Rescheduling Report",
+        f"# {scope.display_name} Rescheduling Report",
         "",
-        "This report scopes optimization candidates to DS-owned recommendation_engine DAGs and treats upstream DAGs as fixed context.",
+        f"This report scopes optimization candidates to DS-owned {scope.scope_id} DAGs and treats upstream DAGs as fixed context.",
         "",
         "## Candidate Summary",
         "",
@@ -107,3 +108,7 @@ def build_recommendation_engine_report(connection) -> Path:
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"wrote {output_path}")
     return output_path
+
+
+def build_recommendation_engine_report(connection) -> Path:
+    return build_scope_report(connection, get_scope("recommendation_engine"))

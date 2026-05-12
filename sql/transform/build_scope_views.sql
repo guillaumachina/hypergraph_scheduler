@@ -1,4 +1,4 @@
-CREATE OR REPLACE VIEW recommendation_engine_graph_nodes AS
+CREATE OR REPLACE VIEW __SCOPE___graph_nodes AS
 SELECT
     n.dag_id,
     n.repo,
@@ -9,21 +9,21 @@ SELECT
         WHEN n.category = 'seed' AND COALESCE(o.fixed_schedule, FALSE) = FALSE THEN TRUE
         ELSE FALSE
     END AS is_reschedulable
-FROM raw_recommendation_engine_graph_nodes n
-LEFT JOIN raw_recommendation_engine_optimization_dags o
+FROM raw___SCOPE___graph_nodes n
+LEFT JOIN raw___SCOPE___optimization_dags o
   ON o.dag_id = n.dag_id;
 
-CREATE OR REPLACE VIEW recommendation_engine_reschedulable_dags AS
+CREATE OR REPLACE VIEW __SCOPE___reschedulable_dags AS
 SELECT *
-FROM recommendation_engine_graph_nodes
+FROM __SCOPE___graph_nodes
 WHERE is_reschedulable;
 
-CREATE OR REPLACE VIEW recommendation_engine_upstream_context_dags AS
+CREATE OR REPLACE VIEW __SCOPE___upstream_context_dags AS
 SELECT *
-FROM recommendation_engine_graph_nodes
+FROM __SCOPE___graph_nodes
 WHERE NOT is_reschedulable;
 
-CREATE OR REPLACE VIEW recommendation_engine_dependency_edges AS
+CREATE OR REPLACE VIEW __SCOPE___dependency_edges AS
 SELECT
     e.from_dag_id,
     upstream.repo AS from_repo,
@@ -38,13 +38,13 @@ SELECT
     e.alignment_detail,
     e.depth_from_seed,
     e.enforced_envs
-FROM raw_recommendation_engine_graph_edges e
-LEFT JOIN recommendation_engine_graph_nodes upstream
+FROM raw___SCOPE___graph_edges e
+LEFT JOIN __SCOPE___graph_nodes upstream
   ON upstream.dag_id = e.from_dag_id
-LEFT JOIN recommendation_engine_graph_nodes downstream
+LEFT JOIN __SCOPE___graph_nodes downstream
   ON downstream.dag_id = e.to_dag_id;
 
-CREATE OR REPLACE VIEW recommendation_engine_runtime_summary AS
+CREATE OR REPLACE VIEW __SCOPE___runtime_summary AS
 SELECT
     n.dag_id,
     n.repo,
@@ -65,16 +65,16 @@ SELECT
     r.p90_schedule_to_end_seconds,
     r.first_seen_start_date,
     r.last_seen_end_date
-FROM recommendation_engine_graph_nodes n
+FROM __SCOPE___graph_nodes n
 LEFT JOIN dag_runtime_summary r
   ON r.dag_id = n.dag_id;
 
-CREATE OR REPLACE VIEW recommendation_engine_reschedulable_runtime_summary AS
+CREATE OR REPLACE VIEW __SCOPE___reschedulable_runtime_summary AS
 SELECT *
-FROM recommendation_engine_runtime_summary
+FROM __SCOPE___runtime_summary
 WHERE is_reschedulable;
 
-CREATE OR REPLACE VIEW recommendation_engine_sensor_bottleneck_summary AS
+CREATE OR REPLACE VIEW __SCOPE___sensor_bottleneck_summary AS
 SELECT
     s.dag_id,
     n.repo,
@@ -95,10 +95,10 @@ SELECT
     s.total_idle_wait_seconds,
     s.last_seen_reschedule_end
 FROM sensor_bottleneck_summary s
-JOIN recommendation_engine_graph_nodes n
+JOIN __SCOPE___graph_nodes n
   ON n.dag_id = s.dag_id;
 
-CREATE OR REPLACE VIEW recommendation_engine_effective_start_summary AS
+CREATE OR REPLACE VIEW __SCOPE___effective_start_summary AS
 SELECT
     dag_id,
     COUNT(*) AS create_config_run_count,
@@ -109,10 +109,10 @@ SELECT
     MAX(schedule_to_task_start_seconds) AS max_effective_start_delay_seconds
 FROM task_instances_enriched
 WHERE task_id = 'create_config'
-  AND dag_id IN (SELECT dag_id FROM recommendation_engine_graph_nodes)
+  AND dag_id IN (SELECT dag_id FROM __SCOPE___graph_nodes)
 GROUP BY dag_id;
 
-CREATE OR REPLACE VIEW recommendation_engine_effective_processing_summary AS
+CREATE OR REPLACE VIEW __SCOPE___effective_processing_summary AS
 WITH create_config AS (
     SELECT
         dag_id,
@@ -120,7 +120,7 @@ WITH create_config AS (
         start_date AS create_config_start
     FROM task_instances_enriched
     WHERE task_id = 'create_config'
-      AND dag_id IN (SELECT dag_id FROM recommendation_engine_graph_nodes)
+      AND dag_id IN (SELECT dag_id FROM __SCOPE___graph_nodes)
 )
 SELECT
     dr.dag_id,
@@ -137,7 +137,7 @@ WHERE dr.state = 'success'
   AND cc.create_config_start IS NOT NULL
 GROUP BY dr.dag_id;
 
-CREATE OR REPLACE VIEW recommendation_engine_rescheduling_candidates AS
+CREATE OR REPLACE VIEW __SCOPE___rescheduling_candidates AS
 SELECT
     r.dag_id,
     r.repo,
@@ -159,14 +159,14 @@ SELECT
     ep.p90_effective_processing_seconds,
     COALESCE(SUM(s.total_idle_wait_seconds), 0) AS total_scoped_idle_wait_seconds,
     COALESCE(MAX(s.p90_idle_wait_seconds), 0) AS max_sensor_p90_idle_wait_seconds
-FROM recommendation_engine_reschedulable_runtime_summary r
-LEFT JOIN recommendation_engine_dependency_edges e
+FROM __SCOPE___reschedulable_runtime_summary r
+LEFT JOIN __SCOPE___dependency_edges e
   ON e.to_dag_id = r.dag_id
-LEFT JOIN recommendation_engine_sensor_bottleneck_summary s
+LEFT JOIN __SCOPE___sensor_bottleneck_summary s
   ON s.dag_id = r.dag_id
-LEFT JOIN recommendation_engine_effective_start_summary es
+LEFT JOIN __SCOPE___effective_start_summary es
   ON es.dag_id = r.dag_id
-LEFT JOIN recommendation_engine_effective_processing_summary ep
+LEFT JOIN __SCOPE___effective_processing_summary ep
   ON ep.dag_id = r.dag_id
 GROUP BY
     r.dag_id,
@@ -186,28 +186,19 @@ GROUP BY
     ep.median_effective_processing_seconds,
     ep.p90_effective_processing_seconds;
 
-CREATE OR REPLACE VIEW recommendation_engine_seed_edge_sensor_map AS
+CREATE OR REPLACE VIEW __SCOPE___seed_edge_sensor_map AS
 SELECT *
-FROM (
-    VALUES
-        ('pipeline_end', 'market_item_recommender', 'wait_for_dwh_loaded'),
-        ('custom_reports', 'recipe_recommender', 'wait_pipeline_end.wait_for_custom_reports'),
-        ('customer_feature_groups_sf', 'recipe_recommender', 'wait_pipeline_end.wait_for_customer_fg_sf'),
-        ('recipe_feature_groups_sf', 'recipe_recommender', 'wait_pipeline_end.wait_for_recipe_fg_sf'),
-        ('customer_feature_groups_sf', 'relevance_scoring', 'wait_pipeline_end.wait_for_customer_fg_sf'),
-        ('recipe_feature_groups_sf', 'relevance_scoring', 'wait_pipeline_end.wait_for_recipe_fg_sf'),
-        ('customer_feature_groups_sf', 'user_clustering_predict', 'wait_for_customer_fg_sf')
-) AS t(from_dag_id, to_dag_id, sensor_task_id);
+FROM raw___SCOPE___seed_edge_sensor_map;
 
-CREATE OR REPLACE VIEW recommendation_engine_seed_edge_waits AS
+CREATE OR REPLACE VIEW __SCOPE___seed_edge_waits AS
 WITH sensor_waits AS (
     SELECT
         dag_id,
         task_id,
         COUNT(*) AS sensor_run_count,
-    AVG(schedule_to_sensor_start_seconds) AS avg_schedule_to_sensor_start_seconds,
-    MEDIAN(schedule_to_sensor_start_seconds) AS median_schedule_to_sensor_start_seconds,
-    QUANTILE_CONT(schedule_to_sensor_start_seconds, 0.9) AS p90_schedule_to_sensor_start_seconds,
+        AVG(schedule_to_sensor_start_seconds) AS avg_schedule_to_sensor_start_seconds,
+        MEDIAN(schedule_to_sensor_start_seconds) AS median_schedule_to_sensor_start_seconds,
+        QUANTILE_CONT(schedule_to_sensor_start_seconds, 0.9) AS p90_schedule_to_sensor_start_seconds,
         AVG(idle_wait_seconds) AS avg_idle_wait_seconds,
         MEDIAN(idle_wait_seconds) AS median_idle_wait_seconds,
         QUANTILE_CONT(idle_wait_seconds, 0.9) AS p90_idle_wait_seconds,
@@ -231,17 +222,17 @@ SELECT
     s.p90_idle_wait_seconds,
     s.max_idle_wait_seconds,
     s.total_idle_wait_seconds
-FROM recommendation_engine_dependency_edges e
-JOIN recommendation_engine_reschedulable_dags downstream
+FROM __SCOPE___dependency_edges e
+JOIN __SCOPE___reschedulable_dags downstream
   ON downstream.dag_id = e.to_dag_id
-LEFT JOIN recommendation_engine_seed_edge_sensor_map m
+LEFT JOIN __SCOPE___seed_edge_sensor_map m
   ON m.from_dag_id = e.from_dag_id
  AND m.to_dag_id = e.to_dag_id
 LEFT JOIN sensor_waits s
   ON s.dag_id = m.to_dag_id
  AND s.task_id = m.sensor_task_id;
 
-CREATE OR REPLACE VIEW recommendation_engine_candidate_report AS
+CREATE OR REPLACE VIEW __SCOPE___candidate_report AS
 SELECT
     c.dag_id,
     c.repo,
@@ -269,8 +260,8 @@ SELECT
     COALESCE(MAX(w.p90_schedule_to_sensor_start_seconds + w.p90_idle_wait_seconds), 0) AS mapped_edge_max_p90_ready_seconds,
     COALESCE(MAX(w.avg_schedule_to_sensor_start_seconds), 0) AS mapped_edge_max_avg_sensor_touch_seconds,
     COALESCE(MAX(w.p90_schedule_to_sensor_start_seconds), 0) AS mapped_edge_max_p90_sensor_touch_seconds
-FROM recommendation_engine_rescheduling_candidates c
-LEFT JOIN recommendation_engine_seed_edge_waits w
+FROM __SCOPE___rescheduling_candidates c
+LEFT JOIN __SCOPE___seed_edge_waits w
   ON w.to_dag_id = c.dag_id
 GROUP BY
     c.dag_id,
@@ -281,10 +272,10 @@ GROUP BY
     c.p90_dag_runtime_seconds,
     c.avg_schedule_to_end_seconds,
     c.p90_schedule_to_end_seconds,
-  c.create_config_run_count,
-  c.avg_effective_start_delay_seconds,
-  c.median_effective_start_delay_seconds,
-  c.p90_effective_start_delay_seconds,
+    c.create_config_run_count,
+    c.avg_effective_start_delay_seconds,
+    c.median_effective_start_delay_seconds,
+    c.p90_effective_start_delay_seconds,
     c.effective_processing_successful_run_count,
     c.avg_effective_processing_seconds,
     c.median_effective_processing_seconds,
@@ -294,7 +285,7 @@ GROUP BY
     c.total_scoped_idle_wait_seconds,
     c.max_sensor_p90_idle_wait_seconds;
 
-CREATE OR REPLACE VIEW recommendation_engine_optimization_inputs AS
+CREATE OR REPLACE VIEW __SCOPE___optimization_inputs AS
 SELECT
     c.dag_id,
     c.repo,
@@ -306,10 +297,10 @@ SELECT
     c.p90_dag_runtime_seconds,
     c.avg_schedule_to_end_seconds,
     c.p90_schedule_to_end_seconds,
-  c.create_config_run_count,
-  c.avg_effective_start_delay_seconds,
-  c.median_effective_start_delay_seconds,
-  c.p90_effective_start_delay_seconds,
+    c.create_config_run_count,
+    c.avg_effective_start_delay_seconds,
+    c.median_effective_start_delay_seconds,
+    c.p90_effective_start_delay_seconds,
     c.effective_processing_successful_run_count,
     c.avg_effective_processing_seconds,
     c.median_effective_processing_seconds,
@@ -324,6 +315,6 @@ SELECT
     c.mapped_edge_max_p90_ready_seconds,
     c.mapped_edge_max_avg_sensor_touch_seconds,
     c.mapped_edge_max_p90_sensor_touch_seconds
-FROM recommendation_engine_candidate_report c
-JOIN recommendation_engine_graph_nodes g
+FROM __SCOPE___candidate_report c
+JOIN __SCOPE___graph_nodes g
   ON g.dag_id = c.dag_id;
