@@ -13,22 +13,28 @@ The current focus is the `recommendation_engine` scope: DS-owned DAGs that can b
 
 ## Current Workflow
 
+Initialize the local environment once with `uv`:
+
+```bash
+uv sync --extra dev
+```
+
 1. Export Airflow metadata from PostgreSQL:
 
    ```bash
-   PGPASSWORD=... python -m hypergraph_scheduler export-raw --host <host> --database <database> --user <user>
+   PGPASSWORD=... uv run hypergraph-scheduler export-raw --host <host> --database <database> --user <user>
    ```
 
 2. Load the raw exports into DuckDB:
 
    ```bash
-   python -m hypergraph_scheduler load-raw
+   uv run hypergraph-scheduler load-raw
    ```
 
 3. Build derived runtime and scoped recommendation_engine views:
 
    ```bash
-   python -m hypergraph_scheduler build-views
+   uv run hypergraph-scheduler build-views
    ```
 
    This step reads the versioned recommendation_engine dependency inputs stored under `docs/recommendation_engine_inputs/`.
@@ -36,13 +42,13 @@ The current focus is the `recommendation_engine` scope: DS-owned DAGs that can b
 4. Generate the candidate report:
 
    ```bash
-   python -m hypergraph_scheduler build-report
+   uv run hypergraph-scheduler build-report
    ```
 
 5. Generate the schedule proposal:
 
    ```bash
-   python -m hypergraph_scheduler build-schedule-proposal
+   uv run hypergraph-scheduler build-schedule-proposal
    ```
 
 Generated data stays local under `data/` and `artifacts/`.
@@ -76,9 +82,10 @@ hypergraph_scheduler/
 
 ## Setup
 
-1. Create a Python virtual environment.
-2. Install the project in editable mode with `pip install -e .`.
-3. Use the commands above to populate `data/raw/`, `data/duckdb/`, and `artifacts/`.
+1. Install `uv` if it is not already available.
+2. Run `uv sync --extra dev` from the repository root to create `.venv` and install the project.
+3. Use `uv run hypergraph-scheduler ...` for the workflow commands above.
+4. Generated outputs continue to live under `data/raw/`, `data/duckdb/`, and `artifacts/`.
 
 ## Current Scope
 

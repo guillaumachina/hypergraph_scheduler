@@ -4,12 +4,22 @@
 
 This workflow builds a local DuckDB analytics layer from Airflow metadata exports.
 
+## Environment Setup
+
+Create and populate the local virtual environment with `uv`:
+
+```bash
+uv sync --extra dev
+```
+
+Run all workflow commands through `uv run` so they use the project environment from `.venv`.
+
 ## Raw Extracts
 
 Run the exporter command, which executes the SQL files in `sql/extract/` with `psql` and saves each result set under `data/raw/`.
 
 ```bash
-PGPASSWORD=... python -m hypergraph_scheduler export-raw --host <host> --database <database> --user <user>
+PGPASSWORD=... uv run hypergraph-scheduler export-raw --host <host> --database <database> --user <user>
 ```
 
 Expected folders:
@@ -23,7 +33,7 @@ Each folder can contain parquet or csv files.
 ## Load Into DuckDB
 
 ```bash
-python -m hypergraph_scheduler load-raw
+uv run hypergraph-scheduler load-raw
 ```
 
 This creates physical raw tables:
@@ -35,7 +45,7 @@ This creates physical raw tables:
 ## Build Derived Views
 
 ```bash
-python -m hypergraph_scheduler build-views
+uv run hypergraph-scheduler build-views
 ```
 
 This step also loads the versioned recommendation_engine static inputs stored under `docs/recommendation_engine_inputs/`.
@@ -47,6 +57,27 @@ This creates:
 - `sensor_task_runs`
 - `sensor_reschedule_summary`
 - `sensor_wait_summary`
+
+## Generate Candidate Report
+
+```bash
+uv run hypergraph-scheduler build-report
+```
+
+This writes:
+
+- `artifacts/recommendation_engine_candidate_report.md`
+
+## Generate Schedule Proposal
+
+```bash
+uv run hypergraph-scheduler build-schedule-proposal
+```
+
+This writes:
+
+- `artifacts/recommendation_engine_schedule_proposal.md`
+- `artifacts/recommendation_engine_schedule_proposal.csv`
 
 ## Versioned Recommendation Engine Inputs
 
