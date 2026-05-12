@@ -1,0 +1,57 @@
+{
+  "scope_id": "monday_ds",
+  "display_name": "Monday DS",
+  "artifact_prefix": "monday_ds",
+  "seed_edge_sensor_map": [
+    {
+      "from_dag_id": "customer_feature_groups_sf",
+      "to_dag_id": "plum",
+      "sensor_task_id": "waiting_tasks.wait_for_cst_fg_sf"
+    },
+    {
+      "from_dag_id": "customer_feature_groups_sf",
+      "to_dag_id": "reactivation_model",
+      "sensor_task_id": "wait_for_customer_fg_sf"
+    },
+    {
+      "from_dag_id": "customer_feature_groups_sf",
+      "to_dag_id": "clv_model",
+      "sensor_task_id": "wait_for_customer_feature_groups_sf"
+    },
+    {
+      "from_dag_id": "customer_feature_groups_sf",
+      "to_dag_id": "relevance_scoring",
+      "sensor_task_id": "wait_pipeline_end.wait_for_customer_fg_sf"
+    },
+    {
+      "from_dag_id": "recipe_feature_groups_sf",
+      "to_dag_id": "relevance_scoring",
+      "sensor_task_id": "wait_pipeline_end.wait_for_recipe_fg_sf"
+    },
+    {
+      "from_dag_id": "recipe_feature_groups_sf",
+      "to_dag_id": "sales_forecast_v2",
+      "sensor_task_id": "wait_for_recipe_fg_sf"
+    },
+    {
+      "from_dag_id": "time_series_feature_groups_sf",
+      "to_dag_id": "fork",
+      "sensor_task_id": "wait_for_time_series_fg_sf"
+    },
+    {
+      "from_dag_id": "sales_forecast_v2",
+      "to_dag_id": "fork",
+      "sensor_task_id": "wait_for_sales_forecast_v2"
+    },
+    {
+      "from_dag_id": "pipeline_end",
+      "to_dag_id": "menu_generation",
+      "sensor_task_id": "wait_for_dwh_loaded"
+    },
+    {
+      "from_dag_id": "load_ramen",
+      "to_dag_id": "menu_generation",
+      "sensor_task_id": "wait_for_ramen_loaded"
+    }
+  ]
+}
