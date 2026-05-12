@@ -6,15 +6,10 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
-from hypergraph_scheduler.paths import ARTIFACTS_DIR, PROJECT_ROOT
+from hypergraph_scheduler.paths import ARTIFACTS_DIR, RECOMMENDATION_ENGINE_INPUTS_DIR
 
 
-MODEL_PATH = (
-    PROJECT_ROOT.parent
-    / "recommendation_engine"
-    / "docs"
-    / "recommendation_engine_schedule_optimization_model.json"
-)
+MODEL_PATH = RECOMMENDATION_ENGINE_INPUTS_DIR / "recommendation_engine_schedule_optimization_model.json"
 
 
 @dataclass(frozen=True)
