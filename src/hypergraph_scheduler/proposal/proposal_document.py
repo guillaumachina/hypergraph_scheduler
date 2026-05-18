@@ -94,7 +94,7 @@ def render_why_each_dag_moved_markdown(
         f"Active backend: `{solver_backend}`.",
         f"Active objective mode: `{solver_objective_mode}`.",
         "",
-        "| DAG | Current schedule | Proposed schedule | Shift | Waiting saved | Why this moved |",
+        "| DAG | Current start UTC | Proposed start UTC | Shift | Waiting saved | Why this moved |",
         "| --- | --- | --- | ---: | ---: | --- |",
     ]
 
@@ -139,8 +139,8 @@ def render_why_each_dag_moved_markdown(
         lines.append(
             "| {} | {} | {} | {} | {} | {} |".format(
                 proposal.dag_id,
-                proposal.current_schedule,
-                proposal.proposed_schedule,
+                proposal.current_primary_start_utc,
+                proposal.proposed_primary_start_utc,
                 format_duration_minutes(abs(proposal.shift_minutes)),
                 format_duration_minutes(proposal.wait_saved_minutes),
                 "; ".join(rationale_parts),

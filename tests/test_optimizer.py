@@ -1562,7 +1562,9 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
 
     why_each_dag_moved_text = why_each_dag_moved_markdown_path.read_text(encoding="utf-8")
     assert "# Monday DS Why Each DAG Moved" in why_each_dag_moved_text
+    assert "| DAG | Current start UTC | Proposed start UTC | Shift | Waiting saved | Why this moved |" in why_each_dag_moved_text
     assert "recipe_recommender" in why_each_dag_moved_text
+    assert "| recipe_recommender | 07:05 | 10:30 | 3h 25m | 3h 25m |" in why_each_dag_moved_text
     assert "Moved 3h 25m later to remove 3h 25m of waiting before upstream readiness" in why_each_dag_moved_text
     assert "Kept unchanged because this DAG runs in fixed multiple slots" in why_each_dag_moved_text
 
