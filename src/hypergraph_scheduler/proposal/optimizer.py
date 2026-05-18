@@ -194,6 +194,13 @@ def build_scope_schedule_proposal(
     global_mermaid_chart_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_global_pressure_evolution.mmd"
 
     optimization_model = load_optimization_model(scope.model_path)
+    optimization_defaults = optimization_model.get("optimization_defaults", {})
+    if not isinstance(optimization_defaults, dict):
+        optimization_defaults = {}
+    output_config = optimization_defaults.get("output", {})
+    if not isinstance(output_config, dict):
+        output_config = {}
+    reviewed_assumptions_first = bool(output_config.get("reviewed_assumptions_first", scope.scope_id == "monday_ds"))
     working_hours = load_working_hours(scope.model_path)
     runtime_estimation_config = load_runtime_estimation_config(scope.model_path)
     solver_config = load_solver_config(
@@ -906,7 +913,7 @@ def build_scope_schedule_proposal(
             reviewed_assumptions_csv_name=reviewed_assumptions_csv_path.name,
             reviewed_assumptions_markdown_name=reviewed_assumptions_markdown_path.name,
             reviewed_assumption_rows=reviewed_assumption_rows,
-            include_runtime_diagnostics=scope.scope_id != "monday_ds",
+            include_runtime_diagnostics=not reviewed_assumptions_first,
             observed_global_limits_csv_name=observed_global_limits_csv_path.name,
             observed_per_dag_limits_csv_name=observed_per_dag_limits_csv_path.name,
             representative_profiles=representative_profiles,

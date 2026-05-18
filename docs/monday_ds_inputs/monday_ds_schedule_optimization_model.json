@@ -45,6 +45,27 @@
       "latest_start": "18:00",
       "notes": "Global DS team working-hours window for Monday DS DAGs. reactivation_model is currently disabled in production and is kept in the graph but not marked reschedulable."
     },
+    "output": {
+      "reviewed_assumptions_first": true,
+      "notes": "Keep Monday teammate-facing artifacts focused on reviewed assumptions and the proposed schedule. Runtime diagnostics remain available in supporting artifacts and code, but are hidden from the main proposal by default."
+    },
+    "solver": {
+      "default_backend": "cp_sat",
+      "objective_mode": "concurrency_first",
+      "available_backends": ["greedy", "cp_sat", "milp"],
+      "available_objective_modes": ["wait_saving", "concurrency_first"],
+      "parallelism_limit": 24,
+      "soft_parallelism_fraction": 0.75,
+      "time_limit_seconds": 10.0,
+      "ready_start_dag_ids": ["sales_forecast_v2"],
+      "dependency_gate_pairs": [
+        {"upstream_dag_id": "sales_forecast_v2", "gated_dag_id": "fork"}
+      ],
+      "sequential_dag_pairs": [
+        {"primary_dag_id": "fork", "secondary_dag_id": "plum"}
+      ],
+      "notes": "Use cp_sat to optimize the scoped DAG starts jointly. Use milp as a comparison backend with the same slot domain. Use concurrency_first when the primary requirement is to reject any schedule that worsens the current observed global hourly exact peak profile."
+    },
     "objective_candidates": [
       "minimize_schedule_delay_seconds",
       "minimize_downstream_wait_seconds",
@@ -55,11 +76,11 @@
   "dags": [
     {"dag_id": "menu_ranker", "repo": "recommendation_engine", "scheduled_cron": "30 4,18 * * *", "category": "seed", "constraints": {"fixed_schedule": false}, "notes": ["No explicit wait edge is enforced in the DAG definition."]},
     {"dag_id": "relevance_scoring", "repo": "recommendation_engine", "scheduled_cron": "05 07 * * *", "category": "seed", "constraints": {"fixed_schedule": false}},
-    {"dag_id": "plum", "repo": "marketing_engine", "scheduled_cron": "05 9 * * 1", "category": "seed", "constraints": {"fixed_schedule": false}},
+    {"dag_id": "plum", "repo": "marketing_engine", "scheduled_cron": "05 9 * * 1", "category": "seed", "constraints": {"fixed_schedule": false}, "runtime_estimation": {"manual_estimated_seconds": 5400}, "notes": ["Normal run profile is about 1h30.", "The practical start anchor is create_run_config rather than create_config, so create_config-based estimates can understate the runtime."]},
     {"dag_id": "reactivation_model", "repo": "marketing_engine", "scheduled_cron": "05 07 * * 1", "category": "seed", "constraints": {"fixed_schedule": true}, "notes": ["Currently disabled in production. Kept visible in the graph for completeness."]},
-    {"dag_id": "fork", "repo": "orders_forecast", "scheduled_cron": "05 07 * * *", "category": "seed", "constraints": {"fixed_schedule": false}},
-    {"dag_id": "sales_forecast_v2", "repo": "sales_forecast", "scheduled_cron": "05 07 * * *", "category": "seed", "constraints": {"fixed_schedule": false}},
-    {"dag_id": "clv_model", "repo": "marketing_engine", "scheduled_cron": "05 07 * * *", "category": "seed", "constraints": {"fixed_schedule": false}},
+    {"dag_id": "fork", "repo": "orders_forecast", "scheduled_cron": "05 07 * * *", "category": "seed", "constraints": {"fixed_schedule": false}, "runtime_estimation": {"manual_estimated_seconds": 13500, "dependency_gate_offset_seconds": 1800}, "notes": ["Normal run profile is about 3h30 to 4h.", "The sales_forecast_v2 dependency matters around the middle of the DAG rather than at the very beginning.", "Usual processing before the sales_forecast_v2-dependent stage is about 30 minutes, or about 45 minutes on training days."]},
+    {"dag_id": "sales_forecast_v2", "repo": "sales_forecast", "scheduled_cron": "05 07 * * *", "category": "seed", "constraints": {"fixed_schedule": false}, "runtime_estimation": {"manual_estimated_seconds": 9000}, "notes": ["Normal run profile is about 2h30."]},
+    {"dag_id": "clv_model", "repo": "marketing_engine", "scheduled_cron": "05 07 * * *", "category": "seed", "constraints": {"fixed_schedule": false}, "runtime_estimation": {"manual_estimated_seconds": 900}, "notes": ["Normal run profile is about 15 minutes when training is not enabled.", "Training-enabled runs can take longer and are not modeled separately yet."]},
     {"dag_id": "menu_generation", "repo": "menu_creation", "scheduled_cron": "30 4,18 * * *", "category": "seed", "constraints": {"fixed_schedule": false}},
     {"dag_id": "customer_feature_groups_sf", "repo": "hummus", "scheduled_cron": "05 07 * * *", "category": "upstream"},
     {"dag_id": "recipe_feature_groups_sf", "repo": "hummus", "scheduled_cron": "05 07 * * *", "category": "upstream"},
