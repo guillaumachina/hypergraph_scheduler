@@ -1485,6 +1485,7 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
     reviewed_assumptions_csv_path = tmp_path / "monday_ds_reviewed_assumptions.csv"
     reviewed_assumptions_markdown_path = tmp_path / "monday_ds_reviewed_assumptions.md"
     why_each_dag_moved_markdown_path = tmp_path / "monday_ds_why_each_dag_moved.md"
+    teammate_summary_markdown_path = tmp_path / "monday_ds_teammate_summary.md"
     hourly_pressure_csv_path = tmp_path / "monday_ds_hourly_pressure_parallel.csv"
     observed_global_limits_csv_path = tmp_path / "monday_ds_observed_global_limits.csv"
     observed_per_dag_limits_csv_path = tmp_path / "monday_ds_observed_per_dag_limits.csv"
@@ -1496,6 +1497,7 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
     assert reviewed_assumptions_csv_path.exists()
     assert reviewed_assumptions_markdown_path.exists()
     assert why_each_dag_moved_markdown_path.exists()
+    assert teammate_summary_markdown_path.exists()
     assert hourly_pressure_csv_path.exists()
     assert observed_global_limits_csv_path.exists()
     assert observed_per_dag_limits_csv_path.exists()
@@ -1528,6 +1530,7 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
     assert "monday_ds_reviewed_assumptions.csv" in markdown_text
     assert "monday_ds_reviewed_assumptions.md" in markdown_text
     assert "monday_ds_why_each_dag_moved.md" in markdown_text
+    assert "monday_ds_teammate_summary.md" in markdown_text
     assert "recipe_recommender" in markdown_text
     assert "30 10 * * 3" in markdown_text
     assert "Waiting time (" in markdown_text
@@ -1560,8 +1563,17 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
     why_each_dag_moved_text = why_each_dag_moved_markdown_path.read_text(encoding="utf-8")
     assert "# Monday DS Why Each DAG Moved" in why_each_dag_moved_text
     assert "recipe_recommender" in why_each_dag_moved_text
-    assert "to remove 3h 25m of pre-ready waiting" in why_each_dag_moved_text
-    assert "fixed multi-slot schedule" in why_each_dag_moved_text
+    assert "Moved 3h 25m later to remove 3h 25m of waiting before upstream readiness" in why_each_dag_moved_text
+    assert "Kept unchanged because this DAG runs in fixed multiple slots" in why_each_dag_moved_text
+
+    teammate_summary_text = teammate_summary_markdown_path.read_text(encoding="utf-8")
+    assert "# Monday DS Teammate Summary" in teammate_summary_text
+    assert "Use the `greedy` proposal in `wait_saving` mode as the Monday DS baseline." in teammate_summary_text
+    assert "recipe_recommender" in teammate_summary_text
+    assert "largest estimated DS parallel-task decrease is at" in teammate_summary_text
+    assert "lower" in teammate_summary_text
+    assert "higher" in teammate_summary_text
+    assert "Reviewed assumptions: `monday_ds_reviewed_assumptions.md`" in teammate_summary_text
 
     with csv_path.open(newline="", encoding="utf-8") as csv_file:
         csv_rows = list(csv.DictReader(csv_file))

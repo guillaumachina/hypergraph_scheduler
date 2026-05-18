@@ -49,6 +49,7 @@ from hypergraph_scheduler.proposal.proposal_analysis import (
 from hypergraph_scheduler.proposal.proposal_document import (
     render_reviewed_assumptions_markdown,
     render_schedule_proposal_markdown,
+    render_teammate_summary_markdown,
     render_why_each_dag_moved_markdown,
 )
 from hypergraph_scheduler.proposal.proposal_outputs import (
@@ -192,6 +193,7 @@ def build_scope_schedule_proposal(
     reviewed_assumptions_csv_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_reviewed_assumptions.csv"
     reviewed_assumptions_markdown_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_reviewed_assumptions.md"
     why_each_dag_moved_markdown_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_why_each_dag_moved.md"
+    teammate_summary_markdown_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_teammate_summary.md"
     mermaid_chart_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_pressure_parallel_evolution.mmd"
     global_mermaid_chart_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_global_pressure_evolution.mmd"
 
@@ -909,6 +911,23 @@ def build_scope_schedule_proposal(
         ),
         encoding="utf-8",
     )
+    teammate_summary_markdown_path.write_text(
+        render_teammate_summary_markdown(
+            scope_display_name=scope.display_name,
+            solver_backend=solver_config.backend,
+            solver_objective_mode=solver_config.objective_mode,
+            proposal_rows=proposal_rows,
+            reviewed_assumption_rows=reviewed_assumption_rows,
+            rescheduled_count=rescheduled_count,
+            total_wait_saved_minutes=total_wait_saved_minutes,
+            current_ds_pressure_hourly=current_ds_pressure_hourly,
+            proposed_ds_pressure_hourly=proposed_ds_pressure_hourly,
+            reviewed_assumptions_markdown_name=reviewed_assumptions_markdown_path.name,
+            why_each_dag_moved_markdown_name=why_each_dag_moved_markdown_path.name,
+            schedule_proposal_markdown_name=markdown_path.name,
+        ),
+        encoding="utf-8",
+    )
     markdown_path.write_text(
         render_schedule_proposal_markdown(
             scope_display_name=scope.display_name,
@@ -927,6 +946,7 @@ def build_scope_schedule_proposal(
             reviewed_assumptions_csv_name=reviewed_assumptions_csv_path.name,
             reviewed_assumptions_markdown_name=reviewed_assumptions_markdown_path.name,
             why_each_dag_moved_markdown_name=why_each_dag_moved_markdown_path.name,
+            teammate_summary_markdown_name=teammate_summary_markdown_path.name,
             reviewed_assumption_rows=reviewed_assumption_rows,
             include_runtime_diagnostics=not reviewed_assumptions_first,
             observed_global_limits_csv_name=observed_global_limits_csv_path.name,
@@ -954,6 +974,7 @@ def build_scope_schedule_proposal(
     print(f"wrote {reviewed_assumptions_csv_path}")
     print(f"wrote {reviewed_assumptions_markdown_path}")
     print(f"wrote {why_each_dag_moved_markdown_path}")
+    print(f"wrote {teammate_summary_markdown_path}")
     print(f"wrote {hourly_pressure_csv_path}")
     print(f"wrote {observed_global_limits_csv_path}")
     print(f"wrote {observed_per_dag_limits_csv_path}")

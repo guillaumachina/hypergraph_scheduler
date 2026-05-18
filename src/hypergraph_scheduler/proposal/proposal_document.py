@@ -19,6 +19,21 @@ def _format_seconds_as_hours(value: float | None) -> str:
     return f"{(value or 0.0) / 3600.0:.2f}"
 
 
+def _format_move_note(note: str) -> str:
+    normalized = note.strip()
+    if not normalized:
+        return ""
+    replacements = {
+        "start at first reviewed ready slot": "scheduled at the first reviewed-ready slot",
+        "mid-run dependency gate enforced": "includes a mid-run dependency gate",
+        "explicit sequencing rule enforced": "must respect an explicit sequencing rule",
+    }
+    normalized = replacements.get(normalized, normalized)
+    if normalized.endswith("."):
+        normalized = normalized[:-1]
+    return normalized[0].upper() + normalized[1:] if normalized else ""
+
+
 def render_reviewed_assumptions_markdown(
     *,
     scope_display_name: str,
@@ -92,33 +107,34 @@ def render_why_each_dag_moved_markdown(
 
         if proposal.shift_minutes == 0:
             if movability == "fixed_multi_slot":
-                rationale_parts.append("kept in place because this is a fixed multi-slot schedule")
+                rationale_parts.append("Kept unchanged because this DAG runs in fixed multiple slots")
             elif proposal.wait_saved_minutes <= 0:
-                rationale_parts.append("kept in place because the reviewed-ready timing did not justify a safer alternative slot")
+                rationale_parts.append("Kept unchanged because the reviewed-ready timing did not justify a safer alternative slot")
             else:
-                rationale_parts.append("kept in place after applying the reviewed timing constraints")
+                rationale_parts.append("Kept unchanged after applying the reviewed timing constraints")
         else:
             direction = "later" if proposal.shift_minutes > 0 else "earlier"
-            rationale_parts.append(
-                f"moved {format_duration_minutes(abs(proposal.shift_minutes))} {direction}"
-            )
+            move_reason = f"Moved {format_duration_minutes(abs(proposal.shift_minutes))} {direction}"
             if proposal.wait_saved_minutes > 0:
-                rationale_parts.append(
-                    f"to remove {format_duration_minutes(proposal.wait_saved_minutes)} of pre-ready waiting"
-                )
+                move_reason += f" to remove {format_duration_minutes(proposal.wait_saved_minutes)} of waiting before upstream readiness"
             elif proposal.proposed_gap_after_ready_minutes > proposal.current_gap_after_ready_minutes:
-                rationale_parts.append("to start after the reviewed upstream-ready time instead of before it")
+                move_reason += " to start after the reviewed upstream-ready time instead of before it"
             else:
-                rationale_parts.append("to reduce modeled concurrency pressure while preserving feasibility")
+                move_reason += " to reduce modeled concurrency pressure while preserving feasibility"
+            rationale_parts.append(move_reason)
 
         if dependency_gate != "0m":
-            rationale_parts.append(f"while honoring a {dependency_gate} dependency gate")
+            rationale_parts.append(f"Includes a {dependency_gate} dependency gate")
         if proposal.post_ready_setup_minutes > 0:
             rationale_parts.append(
-                f"with {format_duration_minutes(proposal.post_ready_setup_minutes)} of modeled post-ready setup"
+                f"Uses {format_duration_minutes(proposal.post_ready_setup_minutes)} of modeled post-ready setup"
             )
         if notes and notes != "-":
-            rationale_parts.append(notes.replace(" | ", "; "))
+            rationale_parts.extend(
+                formatted_note
+                for formatted_note in (_format_move_note(part) for part in notes.split(" | "))
+                if formatted_note
+            )
 
         lines.append(
             "| {} | {} | {} | {} | {} | {} |".format(
@@ -130,6 +146,115 @@ def render_why_each_dag_moved_markdown(
                 "; ".join(rationale_parts),
             )
         )
+
+    return "\n".join(lines) + "\n"
+
+
+def render_teammate_summary_markdown(
+    *,
+    scope_display_name: str,
+    solver_backend: str,
+    solver_objective_mode: str,
+    proposal_rows: list[ProposalRow],
+    reviewed_assumption_rows: list[dict[str, object]],
+    rescheduled_count: int,
+    total_wait_saved_minutes: int,
+    current_ds_pressure_hourly: list[float],
+    proposed_ds_pressure_hourly: list[float],
+    reviewed_assumptions_markdown_name: str,
+    why_each_dag_moved_markdown_name: str,
+    schedule_proposal_markdown_name: str,
+) -> str:
+    reviewed_assumptions_by_dag = {
+        str(row["dag_id"]): row for row in reviewed_assumption_rows if row.get("dag_id")
+    }
+    rescheduled_rows = [row for row in proposal_rows if row.shift_minutes != 0]
+    unchanged_rows = [row for row in proposal_rows if row.shift_minutes == 0]
+
+    largest_drop_hour = max(
+        range(len(current_ds_pressure_hourly)),
+        key=lambda hour: current_ds_pressure_hourly[hour] - proposed_ds_pressure_hourly[hour],
+    )
+    largest_rise_hour = max(
+        range(len(current_ds_pressure_hourly)),
+        key=lambda hour: proposed_ds_pressure_hourly[hour] - current_ds_pressure_hourly[hour],
+    )
+    largest_drop_value = current_ds_pressure_hourly[largest_drop_hour] - proposed_ds_pressure_hourly[largest_drop_hour]
+    largest_rise_value = proposed_ds_pressure_hourly[largest_rise_hour] - current_ds_pressure_hourly[largest_rise_hour]
+
+    lines = [
+        f"# {scope_display_name} Teammate Summary",
+        "",
+        "## Recommendation",
+        "",
+        f"Use the `{solver_backend}` proposal in `{solver_objective_mode}` mode as the Monday DS baseline.",
+        f"It reschedules {rescheduled_count} DAGs and removes about {format_duration_minutes(total_wait_saved_minutes)} of waiting before upstream readiness.",
+        "This is intentionally a reviewed-assumptions plan, not a fully history-driven forecast.",
+        "",
+        "## What Changes",
+        "",
+        "| DAG | Current | Proposed | Main reason |",
+        "| --- | --- | --- | --- |",
+    ]
+
+    for proposal in sorted(rescheduled_rows, key=lambda row: abs(row.shift_minutes), reverse=True):
+        reviewed_assumption_row = reviewed_assumptions_by_dag.get(proposal.dag_id, {})
+        if proposal.wait_saved_minutes > 0:
+            reason = f"Remove {format_duration_minutes(proposal.wait_saved_minutes)} of waiting before upstream readiness"
+        elif str(reviewed_assumption_row.get("dependency_gate", "0m")) != "0m":
+            reason = f"Honor the reviewed {reviewed_assumption_row['dependency_gate']} dependency gate"
+        else:
+            reason = "Reduce modeled overlap while staying within the reviewed constraints"
+        lines.append(
+            f"| {proposal.dag_id} | {proposal.current_schedule} | {proposal.proposed_schedule} | {reason} |"
+        )
+
+    if unchanged_rows:
+        lines.extend(
+            [
+                "",
+                "## What Stays Unchanged",
+                "",
+            ]
+        )
+        for proposal in unchanged_rows:
+            reviewed_assumption_row = reviewed_assumptions_by_dag.get(proposal.dag_id, {})
+            movability = str(reviewed_assumption_row.get("movability", ""))
+            if movability == "fixed_multi_slot":
+                reason = "fixed multi-slot schedule"
+            else:
+                reason = "no safer reviewed alternative was materially better"
+            lines.append(f"- {proposal.dag_id}: {reason}")
+
+    lines.extend(
+        [
+            "",
+            "## Pressure Effect",
+            "",
+            f"The largest estimated DS parallel-task decrease is at {largest_drop_hour:02d}:00 ({largest_drop_value:.2f} lower).",
+            f"The largest estimated DS parallel-task increase is at {largest_rise_hour:02d}:00 ({largest_rise_value:.2f} higher).",
+            "The proposal shifts load out of the late-morning congestion window and accepts some later-day increase to do it.",
+            "",
+            "## Assumptions To Review",
+            "",
+        ]
+    )
+    for row in reviewed_assumption_rows:
+        if str(row.get("confidence")) == "reviewed_assumption":
+            lines.append(
+                f"- {row['dag_id']}: runtime {row['reviewed_runtime']}, ready-time source {row['upstream_ready_source']}, dependency gate {row['dependency_gate']}"
+            )
+
+    lines.extend(
+        [
+            "",
+            "## Supporting Artifacts",
+            "",
+            f"- Main proposal: `{schedule_proposal_markdown_name}`",
+            f"- Reviewed assumptions: `{reviewed_assumptions_markdown_name}`",
+            f"- Why each DAG moved: `{why_each_dag_moved_markdown_name}`",
+        ]
+    )
 
     return "\n".join(lines) + "\n"
 
@@ -152,6 +277,7 @@ def render_schedule_proposal_markdown(
     reviewed_assumptions_csv_name: str,
     reviewed_assumptions_markdown_name: str,
     why_each_dag_moved_markdown_name: str,
+    teammate_summary_markdown_name: str,
     reviewed_assumption_rows: list[dict[str, object]],
     include_runtime_diagnostics: bool,
     observed_global_limits_csv_name: str,
@@ -192,6 +318,7 @@ def render_schedule_proposal_markdown(
         f"A machine-readable summary of the active runtime and dependency assumptions is written to `{reviewed_assumptions_csv_name}`.",
         f"A presentation-ready review of those same assumptions is written to `{reviewed_assumptions_markdown_name}`.",
         f"A per-DAG explanation of each proposed move is written to `{why_each_dag_moved_markdown_name}`.",
+        f"A short teammate-facing summary is written to `{teammate_summary_markdown_name}`.",
         "",
         "| DAG | Runtime source | Reviewed runtime | Upstream-ready source | Dependency gate | Confidence |",
         "| --- | --- | ---: | --- | ---: | --- |",
