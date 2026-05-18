@@ -49,6 +49,7 @@ from hypergraph_scheduler.proposal.proposal_analysis import (
 from hypergraph_scheduler.proposal.proposal_document import (
     render_reviewed_assumptions_markdown,
     render_schedule_proposal_markdown,
+    render_why_each_dag_moved_markdown,
 )
 from hypergraph_scheduler.proposal.proposal_outputs import (
     append_hourly_delta_summary as _append_hourly_delta_summary,
@@ -190,6 +191,7 @@ def build_scope_schedule_proposal(
     csv_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_schedule_proposal.csv"
     reviewed_assumptions_csv_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_reviewed_assumptions.csv"
     reviewed_assumptions_markdown_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_reviewed_assumptions.md"
+    why_each_dag_moved_markdown_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_why_each_dag_moved.md"
     mermaid_chart_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_pressure_parallel_evolution.mmd"
     global_mermaid_chart_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_global_pressure_evolution.mmd"
 
@@ -726,6 +728,16 @@ def build_scope_schedule_proposal(
         ),
         encoding="utf-8",
     )
+    why_each_dag_moved_markdown_path.write_text(
+        render_why_each_dag_moved_markdown(
+            scope_display_name=scope.display_name,
+            solver_backend=solver_config.backend,
+            solver_objective_mode=solver_config.objective_mode,
+            proposal_rows=proposal_rows,
+            reviewed_assumption_rows=reviewed_assumption_rows,
+        ),
+        encoding="utf-8",
+    )
 
     observed_global_rows = [
         {
@@ -914,6 +926,7 @@ def build_scope_schedule_proposal(
             total_wait_saved_minutes=total_wait_saved_minutes,
             reviewed_assumptions_csv_name=reviewed_assumptions_csv_path.name,
             reviewed_assumptions_markdown_name=reviewed_assumptions_markdown_path.name,
+            why_each_dag_moved_markdown_name=why_each_dag_moved_markdown_path.name,
             reviewed_assumption_rows=reviewed_assumption_rows,
             include_runtime_diagnostics=not reviewed_assumptions_first,
             observed_global_limits_csv_name=observed_global_limits_csv_path.name,
@@ -940,6 +953,7 @@ def build_scope_schedule_proposal(
     print(f"wrote {csv_path}")
     print(f"wrote {reviewed_assumptions_csv_path}")
     print(f"wrote {reviewed_assumptions_markdown_path}")
+    print(f"wrote {why_each_dag_moved_markdown_path}")
     print(f"wrote {hourly_pressure_csv_path}")
     print(f"wrote {observed_global_limits_csv_path}")
     print(f"wrote {observed_per_dag_limits_csv_path}")

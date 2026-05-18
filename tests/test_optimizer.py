@@ -1484,6 +1484,7 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
     csv_path = tmp_path / "monday_ds_schedule_proposal.csv"
     reviewed_assumptions_csv_path = tmp_path / "monday_ds_reviewed_assumptions.csv"
     reviewed_assumptions_markdown_path = tmp_path / "monday_ds_reviewed_assumptions.md"
+    why_each_dag_moved_markdown_path = tmp_path / "monday_ds_why_each_dag_moved.md"
     hourly_pressure_csv_path = tmp_path / "monday_ds_hourly_pressure_parallel.csv"
     observed_global_limits_csv_path = tmp_path / "monday_ds_observed_global_limits.csv"
     observed_per_dag_limits_csv_path = tmp_path / "monday_ds_observed_per_dag_limits.csv"
@@ -1494,6 +1495,7 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
     assert csv_path.exists()
     assert reviewed_assumptions_csv_path.exists()
     assert reviewed_assumptions_markdown_path.exists()
+    assert why_each_dag_moved_markdown_path.exists()
     assert hourly_pressure_csv_path.exists()
     assert observed_global_limits_csv_path.exists()
     assert observed_per_dag_limits_csv_path.exists()
@@ -1525,6 +1527,7 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
     assert "## Reviewed Assumptions" in markdown_text
     assert "monday_ds_reviewed_assumptions.csv" in markdown_text
     assert "monday_ds_reviewed_assumptions.md" in markdown_text
+    assert "monday_ds_why_each_dag_moved.md" in markdown_text
     assert "recipe_recommender" in markdown_text
     assert "30 10 * * 3" in markdown_text
     assert "Waiting time (" in markdown_text
@@ -1553,6 +1556,12 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
     assert "# Monday DS Reviewed Assumptions" in assumptions_markdown_text
     assert "Confidence guide:" in assumptions_markdown_text
     assert "reviewed_assumption" in assumptions_markdown_text
+
+    why_each_dag_moved_text = why_each_dag_moved_markdown_path.read_text(encoding="utf-8")
+    assert "# Monday DS Why Each DAG Moved" in why_each_dag_moved_text
+    assert "recipe_recommender" in why_each_dag_moved_text
+    assert "to remove 3h 25m of pre-ready waiting" in why_each_dag_moved_text
+    assert "fixed multi-slot schedule" in why_each_dag_moved_text
 
     with csv_path.open(newline="", encoding="utf-8") as csv_file:
         csv_rows = list(csv.DictReader(csv_file))

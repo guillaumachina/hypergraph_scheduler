@@ -61,6 +61,79 @@ def render_reviewed_assumptions_markdown(
     return "\n".join(lines) + "\n"
 
 
+def render_why_each_dag_moved_markdown(
+    *,
+    scope_display_name: str,
+    solver_backend: str,
+    solver_objective_mode: str,
+    proposal_rows: list[ProposalRow],
+    reviewed_assumption_rows: list[dict[str, object]],
+) -> str:
+    reviewed_assumptions_by_dag = {
+        str(row["dag_id"]): row for row in reviewed_assumption_rows if row.get("dag_id")
+    }
+    lines = [
+        f"# {scope_display_name} Why Each DAG Moved",
+        "",
+        "This file explains the proposed move for each DAG in plain operational terms.",
+        f"Active backend: `{solver_backend}`.",
+        f"Active objective mode: `{solver_objective_mode}`.",
+        "",
+        "| DAG | Current schedule | Proposed schedule | Shift | Waiting saved | Why this moved |",
+        "| --- | --- | --- | ---: | ---: | --- |",
+    ]
+
+    for proposal in proposal_rows:
+        reviewed_assumption_row = reviewed_assumptions_by_dag.get(proposal.dag_id, {})
+        dependency_gate = str(reviewed_assumption_row.get("dependency_gate", "0m"))
+        movability = str(reviewed_assumption_row.get("movability", ""))
+        notes = str(reviewed_assumption_row.get("notes", "")).strip()
+        rationale_parts: list[str] = []
+
+        if proposal.shift_minutes == 0:
+            if movability == "fixed_multi_slot":
+                rationale_parts.append("kept in place because this is a fixed multi-slot schedule")
+            elif proposal.wait_saved_minutes <= 0:
+                rationale_parts.append("kept in place because the reviewed-ready timing did not justify a safer alternative slot")
+            else:
+                rationale_parts.append("kept in place after applying the reviewed timing constraints")
+        else:
+            direction = "later" if proposal.shift_minutes > 0 else "earlier"
+            rationale_parts.append(
+                f"moved {format_duration_minutes(abs(proposal.shift_minutes))} {direction}"
+            )
+            if proposal.wait_saved_minutes > 0:
+                rationale_parts.append(
+                    f"to remove {format_duration_minutes(proposal.wait_saved_minutes)} of pre-ready waiting"
+                )
+            elif proposal.proposed_gap_after_ready_minutes > proposal.current_gap_after_ready_minutes:
+                rationale_parts.append("to start after the reviewed upstream-ready time instead of before it")
+            else:
+                rationale_parts.append("to reduce modeled concurrency pressure while preserving feasibility")
+
+        if dependency_gate != "0m":
+            rationale_parts.append(f"while honoring a {dependency_gate} dependency gate")
+        if proposal.post_ready_setup_minutes > 0:
+            rationale_parts.append(
+                f"with {format_duration_minutes(proposal.post_ready_setup_minutes)} of modeled post-ready setup"
+            )
+        if notes and notes != "-":
+            rationale_parts.append(notes.replace(" | ", "; "))
+
+        lines.append(
+            "| {} | {} | {} | {} | {} | {} |".format(
+                proposal.dag_id,
+                proposal.current_schedule,
+                proposal.proposed_schedule,
+                format_duration_minutes(abs(proposal.shift_minutes)),
+                format_duration_minutes(proposal.wait_saved_minutes),
+                "; ".join(rationale_parts),
+            )
+        )
+
+    return "\n".join(lines) + "\n"
+
+
 def render_schedule_proposal_markdown(
     *,
     scope_display_name: str,
@@ -78,6 +151,7 @@ def render_schedule_proposal_markdown(
     total_wait_saved_minutes: int,
     reviewed_assumptions_csv_name: str,
     reviewed_assumptions_markdown_name: str,
+    why_each_dag_moved_markdown_name: str,
     reviewed_assumption_rows: list[dict[str, object]],
     include_runtime_diagnostics: bool,
     observed_global_limits_csv_name: str,
@@ -117,6 +191,7 @@ def render_schedule_proposal_markdown(
         "The Monday proposal should be read as a reviewed-assumptions schedule, not as a precise forecast from noisy history.",
         f"A machine-readable summary of the active runtime and dependency assumptions is written to `{reviewed_assumptions_csv_name}`.",
         f"A presentation-ready review of those same assumptions is written to `{reviewed_assumptions_markdown_name}`.",
+        f"A per-DAG explanation of each proposed move is written to `{why_each_dag_moved_markdown_name}`.",
         "",
         "| DAG | Runtime source | Reviewed runtime | Upstream-ready source | Dependency gate | Confidence |",
         "| --- | --- | ---: | --- | ---: | --- |",
