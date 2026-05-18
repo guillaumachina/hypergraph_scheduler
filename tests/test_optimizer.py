@@ -1506,13 +1506,14 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
     assert any("OBSERVED_NON_SCOPED_TASK_PEAK_PROFILE" in query for query in connection.queries)
     assert any("OBSERVED_PER_DAG_TASK_PEAK_PROFILE" in query for query in connection.queries)
     assert any("RECENT_OBSERVED_EFFECTIVE_START_MINUTES" in query for query in connection.queries)
-    assert any("FROM monday_ds_seed_edge_wait_runs" in query for query in connection.queries)
-    assert any(
+    assert not any("FROM monday_ds_seed_edge_wait_runs" in query for query in connection.queries)
+    assert not any(
         "FROM dag_runs_enriched dr" in query
+        and "LEFT JOIN create_config cc" in query
         and "task_id IN ('create_config', 'create_run_config')" in query
         for query in connection.queries
     )
-    assert len(connection.queries) >= 15
+    assert len(connection.queries) >= 13
     task_sum_query = next(query for query in connection.queries if "WITH task_sum_runs AS" in query)
     assert "ti.task_id NOT ILIKE 'wait_for_%'" in task_sum_query
     assert "ti.task_id NOT ILIKE 'ge_test_%'" in task_sum_query
@@ -1590,15 +1591,16 @@ def test_build_schedule_proposal_writes_markdown_and_csv(monkeypatch, tmp_path) 
     assert hourly_pressure_rows[0]["hour"] == "00:00"
     assert hourly_pressure_rows[10]["global_avg_concurrency_current"] == "5.0"
     assert hourly_pressure_rows[4]["global_peak_parallel_tasks_current"] == "24"
-    assert hourly_pressure_rows[4]["global_peak_parallel_tasks_current_estimated"] == "22"
+    assert hourly_pressure_rows[4]["global_peak_parallel_tasks_current_estimated"] == "20"
     assert hourly_pressure_rows[10]["global_peak_parallel_tasks_current"] == "22"
-    assert hourly_pressure_rows[10]["global_peak_parallel_tasks_proposed"] == "23"
+    assert hourly_pressure_rows[10]["global_peak_parallel_tasks_current_estimated"] == "16"
+    assert hourly_pressure_rows[10]["global_peak_parallel_tasks_proposed"] == "16"
     assert hourly_pressure_rows[10]["global_peak_parallel_tasks_current_shifted_exact"] == "8"
     assert hourly_pressure_rows[10]["global_peak_parallel_tasks_proposed_shifted_exact"] == "1"
     assert hourly_pressure_rows[10]["ds_avg_concurrency_current"] == "0.23"
     assert hourly_pressure_rows[10]["ds_peak_parallel_tasks_current"] == "6"
-    assert hourly_pressure_rows[10]["ds_peak_parallel_tasks_current_estimated"] == "7"
-    assert hourly_pressure_rows[10]["ds_peak_parallel_tasks_proposed"] == "7"
+    assert hourly_pressure_rows[10]["ds_peak_parallel_tasks_current_estimated"] == "0"
+    assert hourly_pressure_rows[10]["ds_peak_parallel_tasks_proposed"] == "0"
     assert hourly_pressure_rows[10]["ds_peak_parallel_tasks_current_shifted_exact"] == "7"
     assert hourly_pressure_rows[10]["ds_peak_parallel_tasks_proposed_shifted_exact"] == "0"
     assert hourly_pressure_rows[13]["global_peak_parallel_tasks_proposed_shifted_exact"] == "7"

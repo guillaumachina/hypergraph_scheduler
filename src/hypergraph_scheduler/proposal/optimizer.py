@@ -588,91 +588,93 @@ def build_scope_schedule_proposal(
     total_wait_saved_minutes = sum(proposal.wait_saved_minutes for proposal in proposal_rows)
     rescheduled_count = sum(1 for proposal in proposal_rows if proposal.shift_minutes != 0)
 
-    diagnostic_rows = connection.execute(
-        f"""
-        SELECT
-            to_dag_id,
-            from_dag_id,
-            sensor_task_id,
-            run_id,
-            CAST(logical_date AS VARCHAR) AS logical_date,
-            raw_ready_seconds,
-            clipped_ready_seconds,
-            ready_seconds_was_clipped
-        FROM {scope.view_name('seed_edge_wait_runs')}
-        WHERE run_id IS NOT NULL
-        ORDER BY to_dag_id, from_dag_id, logical_date
-        """
-    ).fetchall()
     diagnostics_by_dag: dict[str, list[tuple[object, ...]]] = defaultdict(list)
     proposal_dag_ids = {proposal.dag_id for proposal in proposal_rows}
-    for diagnostic_row in diagnostic_rows:
-        dag_id = str(diagnostic_row[0])
-        if dag_id in proposal_dag_ids:
-            diagnostics_by_dag[dag_id].append(diagnostic_row)
-
-    representative_run_rows = connection.execute(
-        f"""
-        WITH create_config AS (
-            SELECT
-                dag_id,
-                run_id,
-                start_date AS create_config_start,
-                EXTRACT(EPOCH FROM (start_date - scheduled_at)) AS create_config_delay_seconds
-            FROM task_instances_enriched
-            WHERE task_id IN ('create_config', 'create_run_config')
-        )
-        SELECT
-            dr.dag_id,
-            dr.run_id,
-            CAST(dr.logical_date AS VARCHAR) AS logical_date,
-            dr.start_delay_seconds,
-            dr.dag_runtime_seconds,
-            dr.schedule_to_end_seconds,
-            cc.create_config_delay_seconds,
-            CASE
-                WHEN cc.create_config_start IS NOT NULL THEN EXTRACT(EPOCH FROM (dr.end_date - cc.create_config_start))
-                ELSE NULL
-            END AS create_config_to_end_seconds
-        FROM dag_runs_enriched dr
-        LEFT JOIN create_config cc
-          ON cc.dag_id = dr.dag_id
-         AND cc.run_id = dr.run_id
-        WHERE dr.state = 'success'
-          AND dr.end_date IS NOT NULL
-          AND dr.dag_id IN ({", ".join(repr(dag_id) for dag_id in sorted(proposal_dag_ids))})
-        ORDER BY dr.dag_id, dr.logical_date
-        """
-    ).fetchall()
-    representative_runs_by_dag: dict[str, list[RepresentativeRunRow]] = defaultdict(list)
-    for run_row in representative_run_rows:
-        representative_runs_by_dag[str(run_row[0])].append(
-            RepresentativeRunRow(
-                dag_id=str(run_row[0]),
-                run_id=str(run_row[1]),
-                logical_date=str(run_row[2]),
-                start_delay_seconds=_coerce_float(run_row[3]),
-                dag_runtime_seconds=_coerce_float(run_row[4]),
-                schedule_to_end_seconds=_coerce_float(run_row[5]),
-                create_config_delay_seconds=_coerce_float(run_row[6]),
-                create_config_to_end_seconds=_coerce_float(run_row[7]),
-            )
-        )
-    representative_profiles = {
-        dag_id: _choose_representative_run(run_rows)
-        for dag_id, run_rows in representative_runs_by_dag.items()
-    }
     historical_profiles_by_day: dict[str, dict[str, RepresentativeRunProfile]] = defaultdict(dict)
-    for dag_id, run_rows in representative_runs_by_dag.items():
-        for run_row in run_rows:
-            profile = build_replay_profile(run_row)
-            if profile is None:
-                continue
-            logical_dt = _coerce_datetime(profile.logical_date)
-            day_key = logical_dt.date().isoformat() if logical_dt is not None else str(profile.logical_date).split()[0]
-            existing_profile = historical_profiles_by_day[day_key].get(dag_id)
-            if existing_profile is None or str(profile.logical_date) < str(existing_profile.logical_date):
-                historical_profiles_by_day[day_key][dag_id] = profile
+    representative_profiles: dict[str, RepresentativeRunProfile | None] = {}
+    if not reviewed_assumptions_first:
+        diagnostic_rows = connection.execute(
+            f"""
+            SELECT
+                to_dag_id,
+                from_dag_id,
+                sensor_task_id,
+                run_id,
+                CAST(logical_date AS VARCHAR) AS logical_date,
+                raw_ready_seconds,
+                clipped_ready_seconds,
+                ready_seconds_was_clipped
+            FROM {scope.view_name('seed_edge_wait_runs')}
+            WHERE run_id IS NOT NULL
+            ORDER BY to_dag_id, from_dag_id, logical_date
+            """
+        ).fetchall()
+        for diagnostic_row in diagnostic_rows:
+            dag_id = str(diagnostic_row[0])
+            if dag_id in proposal_dag_ids:
+                diagnostics_by_dag[dag_id].append(diagnostic_row)
+
+        representative_run_rows = connection.execute(
+            f"""
+            WITH create_config AS (
+                SELECT
+                    dag_id,
+                    run_id,
+                    start_date AS create_config_start,
+                    EXTRACT(EPOCH FROM (start_date - scheduled_at)) AS create_config_delay_seconds
+                FROM task_instances_enriched
+                WHERE task_id IN ('create_config', 'create_run_config')
+            )
+            SELECT
+                dr.dag_id,
+                dr.run_id,
+                CAST(dr.logical_date AS VARCHAR) AS logical_date,
+                dr.start_delay_seconds,
+                dr.dag_runtime_seconds,
+                dr.schedule_to_end_seconds,
+                cc.create_config_delay_seconds,
+                CASE
+                    WHEN cc.create_config_start IS NOT NULL THEN EXTRACT(EPOCH FROM (dr.end_date - cc.create_config_start))
+                    ELSE NULL
+                END AS create_config_to_end_seconds
+            FROM dag_runs_enriched dr
+            LEFT JOIN create_config cc
+              ON cc.dag_id = dr.dag_id
+             AND cc.run_id = dr.run_id
+            WHERE dr.state = 'success'
+              AND dr.end_date IS NOT NULL
+              AND dr.dag_id IN ({", ".join(repr(dag_id) for dag_id in sorted(proposal_dag_ids))})
+            ORDER BY dr.dag_id, dr.logical_date
+            """
+        ).fetchall()
+        representative_runs_by_dag: dict[str, list[RepresentativeRunRow]] = defaultdict(list)
+        for run_row in representative_run_rows:
+            representative_runs_by_dag[str(run_row[0])].append(
+                RepresentativeRunRow(
+                    dag_id=str(run_row[0]),
+                    run_id=str(run_row[1]),
+                    logical_date=str(run_row[2]),
+                    start_delay_seconds=_coerce_float(run_row[3]),
+                    dag_runtime_seconds=_coerce_float(run_row[4]),
+                    schedule_to_end_seconds=_coerce_float(run_row[5]),
+                    create_config_delay_seconds=_coerce_float(run_row[6]),
+                    create_config_to_end_seconds=_coerce_float(run_row[7]),
+                )
+            )
+        representative_profiles = {
+            dag_id: _choose_representative_run(run_rows)
+            for dag_id, run_rows in representative_runs_by_dag.items()
+        }
+        for dag_id, run_rows in representative_runs_by_dag.items():
+            for run_row in run_rows:
+                profile = build_replay_profile(run_row)
+                if profile is None:
+                    continue
+                logical_dt = _coerce_datetime(profile.logical_date)
+                day_key = logical_dt.date().isoformat() if logical_dt is not None else str(profile.logical_date).split()[0]
+                existing_profile = historical_profiles_by_day[day_key].get(dag_id)
+                if existing_profile is None or str(profile.logical_date) < str(existing_profile.logical_date):
+                    historical_profiles_by_day[day_key][dag_id] = profile
     task_sum_estimates = load_task_sum_estimates(connection, proposal_dag_ids, runtime_estimation_config)
     hourly_pressure_csv_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_hourly_pressure_parallel.csv"
     observed_global_limits_csv_path = ARTIFACTS_DIR / f"{scope.artifact_prefix}_observed_global_limits.csv"
@@ -692,7 +694,7 @@ def build_scope_schedule_proposal(
             historical_profiles_by_day = {
                 "representative": {profile.dag_id: profile for profile in replay_profiles}
             }
-    replay_task_intervals = load_task_intervals_for_profiles(connection, replay_profiles)
+    replay_task_intervals = load_task_intervals_for_profiles(connection, replay_profiles) if replay_profiles else {}
     all_task_intervals_by_dag = load_task_intervals_by_dag(connection)
     scoped_task_intervals_by_dag = {
         dag_id: intervals
