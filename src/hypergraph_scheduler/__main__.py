@@ -1,9 +1,9 @@
 import argparse
 
-from hypergraph_scheduler.duckdb_pipeline import build_runtime_views, connect, load_raw_exports
-from hypergraph_scheduler.export_raw import export_all
-from hypergraph_scheduler.optimizer import build_scope_schedule_proposal
-from hypergraph_scheduler.reporting import build_scope_report
+from hypergraph_scheduler.data.duckdb_pipeline import build_runtime_views, connect, load_raw_exports
+from hypergraph_scheduler.data.export_raw import export_all
+from hypergraph_scheduler.proposal.optimizer import build_scope_schedule_proposal
+from hypergraph_scheduler.proposal.reporting import build_scope_report
 from hypergraph_scheduler.scopes import discover_scopes, get_scope
 
 
@@ -34,6 +34,16 @@ def main() -> None:
         "--scope",
         choices=scope_choices,
         help="Configured DAG scope to build artifacts for; defaults to all configured scopes",
+    )
+    parser.add_argument(
+        "--solver",
+        choices=["greedy", "cp_sat", "milp"],
+        help="Scheduling backend for build-schedule-proposal; defaults to the scope model setting or greedy",
+    )
+    parser.add_argument(
+        "--objective-mode",
+        choices=["wait_saving", "concurrency_first"],
+        help="Scheduling objective mode for build-schedule-proposal; defaults to the scope model setting or wait_saving",
     )
     args = parser.parse_args()
 
@@ -72,7 +82,12 @@ def main() -> None:
                 build_scope_report(connection, scope)
         elif args.command == "build-schedule-proposal":
             for scope in selected_scopes:
-                build_scope_schedule_proposal(connection, scope)
+                build_scope_schedule_proposal(
+                    connection,
+                    scope,
+                    solver_backend=args.solver,
+                    solver_objective_mode=args.objective_mode,
+                )
         elif args.command == "init-db":
             load_raw_exports(connection)
             build_runtime_views(connection)

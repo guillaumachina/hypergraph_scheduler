@@ -263,33 +263,70 @@ Cons:
 
 This is a good first operational baseline.
 
-## Current Implemented Heuristic
+## Implemented Backends
 
-The current repository does not implement the full run-level formulation above.
-Instead, `hypergraph_scheduler` currently uses a pragmatic per-DAG slot-search heuristic to generate an initial recommendation_engine schedule proposal.
+The repository now supports three scheduling backends behind the same `build-schedule-proposal` flow:
 
-In the current implementation:
+- `greedy`: the original per-DAG slot-search heuristic,
+- `cp_sat`: a global CP-SAT model using the same candidate slots and observed runtime summaries,
+- `milp`: a global MILP comparison model with the same slot domain and peak objective.
 
-- only the five DS-owned recommendation_engine DAGs are treated as reschedulable,
+All three backends share the same current scope assumptions:
+
+- only the DS-owned DAGs in the selected scope are treated as reschedulable,
 - multi-slot schedules are kept unchanged,
 - candidate cron starts are searched in 15-minute buckets inside the configured working-hours window,
 - the effective downstream start is estimated as `max(proposed cron, estimated upstream-ready time) + observed post-ready setup lag`,
-- candidate slots are scored with a weighted penalty on:
-  - waiting before upstream readiness,
-  - starting late after upstream readiness,
-  - violating a minimum stagger gap between recommendation_engine effective starts,
-  - finishing after the 19:00 UTC soft deadline,
-  - and moving too far from the current cron time.
+- and observed global pressure plus observed per-DAG task peaks are used to penalize schedules that recreate concurrency spikes.
 
-This heuristic is intentionally simpler than the formal formulation in this document.
-It does not optimize over individual historical runs $k$, does not solve a global MILP or CP-SAT program, and does not explicitly model crowding with decision variables such as $z_t$.
-Instead, it uses observed runtime summaries from DuckDB together with the static dependency graph to produce a fast, explainable first-pass proposal.
+The backend can be selected either through `optimization_defaults.solver.default_backend` in the scope model JSON or at runtime with `hypergraph-scheduler build-schedule-proposal --solver greedy|cp_sat|milp`.
 
-So the relationship between the two is:
+### Greedy Backend
 
-- this document describes the fuller target optimization model,
-- the current code implements a heuristic approximation aligned with the same operational goals,
-- and the generated schedule proposal should be read as an operational baseline rather than a mathematically optimal solution.
+The greedy backend keeps the original one-pass local scoring model.
+
+Candidate slots are scored with a weighted penalty on:
+
+- waiting before upstream readiness,
+- starting late after upstream readiness,
+- violating a minimum stagger gap between already assigned effective starts,
+- finishing after the 19:00 UTC soft deadline,
+- moving too far from the current cron time,
+- overlapping with already assigned task-heavy windows,
+- and pushing projected global peak concurrency toward or above the Airflow `parallelism` cap.
+
+This backend remains the safest default because it preserves current proposal behavior and is easy to interpret, but it still has the expected limitation: assignment order matters, so it can miss better global tradeoffs.
+
+### CP-SAT Backend
+
+The CP-SAT backend uses the same slot domain as the heuristic, but it chooses all slotted DAG start times jointly.
+
+The implemented model minimizes a weighted objective that combines:
+
+- the predicted maximum scoped-plus-background global peak across 15-minute buckets,
+- soft and hard excess above the configured Airflow parallelism limit,
+- per-DAG wait, lateness, shift, finish-overrun, and background-pressure penalties,
+- and pairwise penalties for close effective starts and overlapping load windows.
+
+This gives the repository a true global optimizer for the same local ingredients the heuristic already used, while keeping the artifact pipeline and output semantics unchanged.
+
+### MILP Backend
+
+The MILP backend mirrors the CP-SAT slot model with binary slot-choice variables, linear peak-bound variables, and linearized pairwise penalties.
+
+It is primarily a comparison model:
+
+- useful when you want a more classical linear-optimization framing,
+- useful for comparing solution quality and runtime against CP-SAT,
+- but generally less attractive than CP-SAT once the model starts accumulating more scheduling logic.
+
+### Practical Recommendation
+
+The practical recommendation in the current codebase is:
+
+1. keep `greedy` as the default operational baseline while refactoring and validating outputs,
+2. use `cp_sat` when the maximum concurrent task load is the main decision criterion,
+3. use `milp` as a comparison backend when you want a linear-programming view of the same slot-selection problem.
 
 ### Heuristic Scoring View
 

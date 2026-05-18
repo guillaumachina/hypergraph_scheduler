@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "duckdb>=1.1.0",
+    "ortools>=9.10.4067",
     "pandas>=2.2.0",
     "pyarrow>=16.0.0",
 ]
@@ -21,6 +22,9 @@ hypergraph-scheduler = "hypergraph_scheduler.__main__:main"
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.6.0",
+]
+notebook = [
+    "ipykernel>=6.29.0",
 ]
 
 [tool.setuptools]

@@ -39,6 +39,16 @@
       "latest_start": "18:00",
       "notes": "Global DS team working-hours window for recommendation_engine DAGs. No DAG-specific override is modeled."
     },
+    "solver": {
+      "default_backend": "greedy",
+      "objective_mode": "wait_saving",
+      "available_backends": ["greedy", "cp_sat", "milp"],
+      "available_objective_modes": ["wait_saving", "concurrency_first"],
+      "parallelism_limit": 24,
+      "soft_parallelism_fraction": 0.75,
+      "time_limit_seconds": 10.0,
+      "notes": "Use cp_sat to optimize the scoped DAG starts jointly. Use milp as a comparison backend with the same slot domain. Use concurrency_first when avoiding global concurrency regressions matters more than saving wait time."
+    },
     "objective_candidates": [
       "minimize_schedule_delay_seconds",
       "minimize_downstream_wait_seconds",

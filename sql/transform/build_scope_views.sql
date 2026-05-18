@@ -108,7 +108,7 @@ SELECT
     MIN(schedule_to_task_start_seconds) AS min_effective_start_delay_seconds,
     MAX(schedule_to_task_start_seconds) AS max_effective_start_delay_seconds
 FROM task_instances_enriched
-WHERE task_id = 'create_config'
+WHERE task_id IN ('create_config', 'create_run_config')
   AND dag_id IN (SELECT dag_id FROM __SCOPE___graph_nodes)
 GROUP BY dag_id;
 
@@ -119,7 +119,7 @@ WITH create_config AS (
         run_id,
         start_date AS create_config_start
     FROM task_instances_enriched
-    WHERE task_id = 'create_config'
+      WHERE task_id IN ('create_config', 'create_run_config')
       AND dag_id IN (SELECT dag_id FROM __SCOPE___graph_nodes)
 )
 SELECT
@@ -144,8 +144,10 @@ SELECT
     r.schedule_resolved,
     r.scheduled_run_count,
     r.avg_dag_runtime_seconds,
+  r.median_dag_runtime_seconds,
     r.p90_dag_runtime_seconds,
     r.avg_schedule_to_end_seconds,
+  r.median_schedule_to_end_seconds,
     r.p90_schedule_to_end_seconds,
     COUNT(DISTINCT e.from_dag_id) AS direct_upstream_dependency_count,
     COUNT(DISTINCT s.task_id) AS scoped_sensor_count,
@@ -174,8 +176,10 @@ GROUP BY
     r.schedule_resolved,
     r.scheduled_run_count,
     r.avg_dag_runtime_seconds,
+    r.median_dag_runtime_seconds,
     r.p90_dag_runtime_seconds,
     r.avg_schedule_to_end_seconds,
+    r.median_schedule_to_end_seconds,
     r.p90_schedule_to_end_seconds,
     es.create_config_run_count,
     es.avg_effective_start_delay_seconds,
@@ -190,47 +194,56 @@ CREATE OR REPLACE VIEW __SCOPE___seed_edge_sensor_map AS
 SELECT *
 FROM raw___SCOPE___seed_edge_sensor_map;
 
-CREATE OR REPLACE VIEW __SCOPE___seed_edge_waits AS
-WITH sensor_waits AS (
-    SELECT
-        dag_id,
-        task_id,
-        COUNT(*) AS sensor_run_count,
-        AVG(schedule_to_sensor_start_seconds) AS avg_schedule_to_sensor_start_seconds,
-        MEDIAN(schedule_to_sensor_start_seconds) AS median_schedule_to_sensor_start_seconds,
-        QUANTILE_CONT(schedule_to_sensor_start_seconds, 0.9) AS p90_schedule_to_sensor_start_seconds,
-        AVG(idle_wait_seconds) AS avg_idle_wait_seconds,
-        MEDIAN(idle_wait_seconds) AS median_idle_wait_seconds,
-        QUANTILE_CONT(idle_wait_seconds, 0.9) AS p90_idle_wait_seconds,
-        MAX(idle_wait_seconds) AS max_idle_wait_seconds,
-        SUM(idle_wait_seconds) AS total_idle_wait_seconds
-    FROM sensor_wait_summary
-    GROUP BY dag_id, task_id
-)
+CREATE OR REPLACE VIEW __SCOPE___seed_edge_wait_runs AS
 SELECT
     e.from_dag_id,
     e.to_dag_id,
     downstream.repo AS to_repo,
     downstream.schedule_resolved AS downstream_schedule,
     m.sensor_task_id,
-    s.sensor_run_count,
-    s.avg_schedule_to_sensor_start_seconds,
-    s.median_schedule_to_sensor_start_seconds,
-    s.p90_schedule_to_sensor_start_seconds,
-    s.avg_idle_wait_seconds,
-    s.median_idle_wait_seconds,
-    s.p90_idle_wait_seconds,
-    s.max_idle_wait_seconds,
-    s.total_idle_wait_seconds
+    s.run_id,
+    s.logical_date,
+    s.scheduled_at,
+    s.schedule_to_sensor_start_seconds,
+    s.idle_wait_seconds,
+    s.schedule_to_sensor_start_seconds + s.idle_wait_seconds AS raw_ready_seconds,
+    LEAST(s.schedule_to_sensor_start_seconds + s.idle_wait_seconds, 20 * 60 * 60) AS clipped_ready_seconds,
+    (s.schedule_to_sensor_start_seconds + s.idle_wait_seconds) > 20 * 60 * 60 AS ready_seconds_was_clipped
 FROM __SCOPE___dependency_edges e
 JOIN __SCOPE___reschedulable_dags downstream
   ON downstream.dag_id = e.to_dag_id
-LEFT JOIN __SCOPE___seed_edge_sensor_map m
+JOIN __SCOPE___seed_edge_sensor_map m
   ON m.from_dag_id = e.from_dag_id
  AND m.to_dag_id = e.to_dag_id
-LEFT JOIN sensor_waits s
+LEFT JOIN sensor_wait_summary s
   ON s.dag_id = m.to_dag_id
  AND s.task_id = m.sensor_task_id;
+
+CREATE OR REPLACE VIEW __SCOPE___seed_edge_waits AS
+SELECT
+    from_dag_id,
+    to_dag_id,
+    to_repo,
+    downstream_schedule,
+    sensor_task_id,
+    COUNT(run_id) AS sensor_run_count,
+    AVG(schedule_to_sensor_start_seconds) AS avg_schedule_to_sensor_start_seconds,
+    MEDIAN(schedule_to_sensor_start_seconds) AS median_schedule_to_sensor_start_seconds,
+    QUANTILE_CONT(schedule_to_sensor_start_seconds, 0.9) AS p90_schedule_to_sensor_start_seconds,
+    AVG(idle_wait_seconds) AS avg_idle_wait_seconds,
+    MEDIAN(idle_wait_seconds) AS median_idle_wait_seconds,
+    QUANTILE_CONT(idle_wait_seconds, 0.9) AS p90_idle_wait_seconds,
+    MAX(idle_wait_seconds) AS max_idle_wait_seconds,
+    SUM(idle_wait_seconds) AS total_idle_wait_seconds,
+    AVG(raw_ready_seconds) AS avg_ready_seconds,
+    MEDIAN(raw_ready_seconds) AS median_ready_seconds,
+    QUANTILE_CONT(raw_ready_seconds, 0.9) AS p90_ready_seconds,
+    AVG(clipped_ready_seconds) AS avg_clipped_ready_seconds,
+    MEDIAN(clipped_ready_seconds) AS median_clipped_ready_seconds,
+    QUANTILE_CONT(clipped_ready_seconds, 0.9) AS p90_clipped_ready_seconds,
+    SUM(CASE WHEN ready_seconds_was_clipped THEN 1 ELSE 0 END) AS clipped_run_count
+FROM __SCOPE___seed_edge_wait_runs
+GROUP BY from_dag_id, to_dag_id, to_repo, downstream_schedule, sensor_task_id;
 
 CREATE OR REPLACE VIEW __SCOPE___candidate_report AS
 SELECT
@@ -239,8 +252,10 @@ SELECT
     c.schedule_resolved,
     c.scheduled_run_count,
     c.avg_dag_runtime_seconds,
+    c.median_dag_runtime_seconds,
     c.p90_dag_runtime_seconds,
     c.avg_schedule_to_end_seconds,
+    c.median_schedule_to_end_seconds,
     c.p90_schedule_to_end_seconds,
     c.create_config_run_count,
     c.avg_effective_start_delay_seconds,
@@ -257,6 +272,7 @@ SELECT
     COALESCE(SUM(w.total_idle_wait_seconds), 0) AS mapped_upstream_idle_wait_seconds,
     COALESCE(MAX(w.p90_idle_wait_seconds), 0) AS mapped_edge_max_p90_idle_wait_seconds,
     COALESCE(MAX(w.avg_schedule_to_sensor_start_seconds + w.avg_idle_wait_seconds), 0) AS mapped_edge_max_avg_ready_seconds,
+    COALESCE(MAX(w.median_clipped_ready_seconds), 0) AS mapped_edge_max_median_clipped_ready_seconds,
     COALESCE(MAX(w.p90_schedule_to_sensor_start_seconds + w.p90_idle_wait_seconds), 0) AS mapped_edge_max_p90_ready_seconds,
     COALESCE(MAX(w.avg_schedule_to_sensor_start_seconds), 0) AS mapped_edge_max_avg_sensor_touch_seconds,
     COALESCE(MAX(w.p90_schedule_to_sensor_start_seconds), 0) AS mapped_edge_max_p90_sensor_touch_seconds
@@ -269,8 +285,10 @@ GROUP BY
     c.schedule_resolved,
     c.scheduled_run_count,
     c.avg_dag_runtime_seconds,
+    c.median_dag_runtime_seconds,
     c.p90_dag_runtime_seconds,
     c.avg_schedule_to_end_seconds,
+    c.median_schedule_to_end_seconds,
     c.p90_schedule_to_end_seconds,
     c.create_config_run_count,
     c.avg_effective_start_delay_seconds,
@@ -294,8 +312,10 @@ SELECT
     g.is_reschedulable,
     c.scheduled_run_count,
     c.avg_dag_runtime_seconds,
+    c.median_dag_runtime_seconds,
     c.p90_dag_runtime_seconds,
     c.avg_schedule_to_end_seconds,
+    c.median_schedule_to_end_seconds,
     c.p90_schedule_to_end_seconds,
     c.create_config_run_count,
     c.avg_effective_start_delay_seconds,
@@ -312,6 +332,7 @@ SELECT
     c.mapped_upstream_idle_wait_seconds,
     c.mapped_edge_max_p90_idle_wait_seconds,
     c.mapped_edge_max_avg_ready_seconds,
+    c.mapped_edge_max_median_clipped_ready_seconds,
     c.mapped_edge_max_p90_ready_seconds,
     c.mapped_edge_max_avg_sensor_touch_seconds,
     c.mapped_edge_max_p90_sensor_touch_seconds
